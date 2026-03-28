@@ -1,0 +1,4 @@
+هون لم يعمل api postman
+php artisan route:list --path=api
+
+tail -n 20 storage/logs/laravel.log
