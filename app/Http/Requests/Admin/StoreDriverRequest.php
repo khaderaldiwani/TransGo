@@ -16,6 +16,7 @@ class StoreDriverRequest extends FormRequest
         return [
             'full_name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:20', 'unique:users,phone'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'address' => ['required', 'string', 'max:500'],
             'id_card_image' => ['required', 'image', 'max:5120'],
             'license_image' => ['required', 'image', 'max:5120'],
