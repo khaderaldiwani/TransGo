@@ -15,6 +15,7 @@ return new class extends Migration
     $table->id();
     $table->foreignId('driver_id')->constrained('driver_profiles', 'user_id')->cascadeOnDelete();
     $table->string('car_type');
+    $table->integer('seat_capacity')->default(4);
     $table->string('mechanical_car')->nullable();
     $table->string('insurance_image')->nullable();
     $table->string('ownership_document')->nullable();

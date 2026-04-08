@@ -61,6 +61,7 @@ class DriverManagementService
             $vehicle = Vehicle::create([
                 'driver_id' => $driverProfile->user_id,
                 'car_type' => $data['car_type'],
+                'seat_capacity' => $data['seat_capacity'],
                 'mechanical_car' => $this->toPublicStoragePath($mechanicalCarImage),
                 'insurance_image' => $this->toPublicStoragePath($insuranceImage),
                 'ownership_document' => $this->toPublicStoragePath($ownershipDocument),

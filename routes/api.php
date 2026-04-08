@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
+use App\Http\Controllers\Api\V1\Driver\TripController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -41,6 +42,7 @@ Route::prefix('v1/driver')->group(function () {
     Route::post('/login', [DriverAuthController::class, 'login'])->middleware('throttle:login');
     
     Route::middleware('auth:sanctum')->group(function(){
+        Route::post('/trips', [TripController::class, 'store']);
     });
     
 });

@@ -42,4 +42,9 @@ class DriverProfile extends Model
     {
         return $this->hasMany(Vehicle::class, 'driver_id');
     }
+
+    public function trips()
+    {
+        return $this->hasMany(Trip::class, 'driver_id', 'user_id');
+    }
 }

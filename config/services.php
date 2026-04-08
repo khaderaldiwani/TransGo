@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'google_routes' => [
+        'api_key' => env('GOOGLE_ROUTES_API_KEY'),
+        'base_url' => env('GOOGLE_ROUTES_BASE_URL', 'https://routes.googleapis.com/directions/v2'),
+        'timeout' => (int) env('GOOGLE_ROUTES_TIMEOUT', 15),
+    ],
+
 ];

@@ -10,6 +10,7 @@ class Vehicle extends Model
      // ==================== Fillable ====================
     protected $fillable = [
         'driver_id',
+        'seat_capacity',
         'car_type',
         'mechanical_car',
         'insurance_image',
