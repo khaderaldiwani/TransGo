@@ -21,6 +21,9 @@ $this->call([
     AdminUserSeeder::class,
     TripStatusSeeder::class,
     GovernorateSeeder::class,
+    BookingStatusSeeder::class,
+    BookingAttendanceStatusSeeder::class,
+    CommissionRateSeeder::class,
 ]);
     }
 }

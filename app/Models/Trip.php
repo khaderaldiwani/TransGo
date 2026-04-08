@@ -79,4 +79,19 @@ class Trip extends Model
     {
         return $this->hasMany(TripPoint::class, 'trip_id', 'trip_id')->orderBy('sequence_order');
     }
+
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class, 'trip_id', 'trip_id');
+    }
+
+    public function receipts()
+    {
+        return $this->hasMany(DriverReceipt::class, 'trip_id', 'trip_id');
+    }
+
+    public function complaints()
+    {
+        return $this->hasMany(Complaint::class, 'related_trip_id', 'trip_id');
+    }
 }

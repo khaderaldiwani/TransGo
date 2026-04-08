@@ -128,6 +128,56 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'created_by');
     }
 
+    public function trips()
+    {
+        return $this->hasMany(Trip::class, 'driver_id', 'user_id');
+    }
+
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class, 'passenger_id', 'user_id');
+    }
+
+    public function wallet()
+    {
+        return $this->hasOne(Wallet::class, 'user_id', 'user_id');
+    }
+
+    public function sentNotifications()
+    {
+        return $this->hasMany(Notification::class, 'created_by', 'user_id');
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(UserNotification::class, 'user_id', 'user_id');
+    }
+
+    public function complaints()
+    {
+        return $this->hasMany(Complaint::class, 'complainant_id', 'user_id');
+    }
+
+    public function assignedComplaints()
+    {
+        return $this->hasMany(Complaint::class, 'assigned_to', 'user_id');
+    }
+
+    public function driverReviews()
+    {
+        return $this->hasMany(DriverReview::class, 'driver_id', 'user_id');
+    }
+
+    public function passengerReviews()
+    {
+        return $this->hasMany(DriverReview::class, 'passenger_id', 'user_id');
+    }
+
+    public function accountRestrictions()
+    {
+        return $this->hasMany(AccountRestriction::class, 'user_id', 'user_id');
+    }
+
     public function hasAnyRole(array $roles): bool
     {
         return $this->roles()->whereIn('name', $roles)->exists();

@@ -35,4 +35,9 @@ class TripPoint extends Model
     {
         return $this->belongsTo(Trip::class, 'trip_id', 'trip_id');
     }
+
+    public function bookingPickupPoints()
+    {
+        return $this->hasMany(BookingPickupPoint::class, 'trip_point_id', 'point_id');
+    }
 }
