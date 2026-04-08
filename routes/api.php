@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
+use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
@@ -25,10 +26,17 @@ Route::prefix('v1/auth')->group(function () {
 
 Route::prefix('v1/admin')->group(function () {
     Route::post('/login', [AuthAdminController::class, 'login'])->middleware('throttle:login');
-    Route::middleware('auth:sanctum')->group(function(){
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        // Drivers Apis 
+        Route::get('/drivers', [DriverController::class, 'index']);
+        Route::get('/drivers/{id}', [DriverController::class, 'show']);
         Route::post('/drivers', [DriverController::class, 'store']);
+
+        // Passengers Apis 
+        Route::get('/passengers', [PassengerController::class, 'index']);
+        Route::get('/passengers/{id}', [PassengerController::class, 'show']);
+        Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
     });
-    
 });
 Route::prefix('v1/passenger')->group(function () {
     Route::post('/login', [PassengerAuthController::class, 'login'])->middleware('throttle:login');

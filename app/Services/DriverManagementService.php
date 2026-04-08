@@ -6,6 +6,7 @@ use App\Models\DriverProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Vehicle;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +15,50 @@ use RuntimeException;
 
 class DriverManagementService
 {
+    public function listDrivers(array $filters): LengthAwarePaginator
+    {
+        $query = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_DRIVER))
+            ->with(['roles', 'driverProfile']);
+
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('full_name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        if (isset($filters['account_status']) && $filters['account_status'] !== '') {
+            $query->where('account_status', $filters['account_status']);
+        }
+
+        if (!empty($filters['approval_status'])) {
+            $query->whereHas('driverProfile', fn($q) => $q->where('approval_status', $filters['approval_status']));
+        }
+
+        $sortBy    = in_array($filters['sort_by'] ?? '', ['full_name', 'email', 'created_at', 'account_status'])
+            ? $filters['sort_by']
+            : 'created_at';
+        $sortOrder = ($filters['sort_order'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+
+        return $query->orderBy($sortBy, $sortOrder)
+                     ->paginate($filters['per_page'] ?? 15);
+    }
+
+    public function getDriver(int $id): User
+    {
+        $user = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_DRIVER))
+            ->with(['roles', 'driverProfile.vehicles.images'])
+            ->find($id);
+
+        if (!$user) {
+            throw new RuntimeException('السائق غير موجود.', 404);
+        }
+
+        return $user;
+    }
+
     public function createDriver(array $data, User $actor): array
     {
         if (!$actor->hasAnyRole([Role::ROLE_ADMIN, Role::ROLE_EMPLOYEE])) {
