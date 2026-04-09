@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
+use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
@@ -30,12 +31,21 @@ Route::prefix('v1/admin')->group(function () {
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
+        ///////
         Route::post('/drivers', [DriverController::class, 'store']);
 
         // Passengers Apis 
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
+    });
+
+    Route::middleware(['auth:sanctum', 'role:admin,employee'])->group(function () {
+        Route::get('/trips', [AdminTripController::class, 'index']);
+        Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+        Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
+        Route::get('/trips/{id}', [AdminTripController::class, 'show']);
+        Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel']);
     });
 });
 Route::prefix('v1/passenger')->group(function () {

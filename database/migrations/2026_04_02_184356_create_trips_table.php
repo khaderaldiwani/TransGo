@@ -38,6 +38,7 @@ return new class extends Migration
             $table->decimal('shared_price', 10, 2)->nullable();
             $table->decimal('private_price', 10, 2)->nullable();
             $table->decimal('system_calculated_price', 10, 2)->nullable();
+            $table->longText('route_polyline')->nullable();
 
             $table->foreignId('status_id')
                 ->constrained('trip_statuses', 'status_id')
