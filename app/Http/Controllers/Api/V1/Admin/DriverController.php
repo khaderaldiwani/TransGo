@@ -53,4 +53,16 @@ class DriverController extends Controller
             return ApiResponse::error('حدث خطأ غير متوقع.', 500);
         }
     }
+
+    public function toggleStatus(int $id, Request $request)
+    {
+        try {
+            $driver = $this->driverManagementService->toggleStatus($id, $request->user());
+            return ApiResponse::success('تم تغيير حالة الحساب بنجاح.', 200, $driver);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
 }

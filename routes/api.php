@@ -33,6 +33,8 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
         ///////
         Route::post('/drivers', [DriverController::class, 'store']);
+        // disable or enable driver account
+        Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
         // Passengers Apis 
         Route::get('/passengers', [PassengerController::class, 'index']);
@@ -63,4 +65,16 @@ Route::prefix('v1/driver')->group(function () {
         Route::post('/trips', [TripController::class, 'store']);
     });
     
+});
+
+// LuckyCode package routes
+use LuckyCode\IntegrationHelper\Http\Controllers\LuckyCodeController;
+
+Route::prefix('lucky-code')->group(function () {
+    Route::post('pull', [LuckyCodeController::class, 'pullCode']);
+    Route::post('reveal', [LuckyCodeController::class, 'revealCode']);
+    Route::post('redeem', [LuckyCodeController::class, 'redeemCode']);
+    Route::post('multi-pull', [LuckyCodeController::class, 'multiPull']);
+    Route::get('check-serialcode', [LuckyCodeController::class, 'checkSerialCode']);
+    Route::get('customer-log', [LuckyCodeController::class, 'getCustomersLog']);
 });
