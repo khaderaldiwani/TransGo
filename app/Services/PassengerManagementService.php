@@ -15,6 +15,20 @@ class PassengerManagementService
         $query = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_PASSENGER))
             ->with('roles');
 
+        // Advanced filters
+        if (!empty($filters['name'])) {
+            $query->where('full_name', 'like', "%{$filters['name']}%");
+        }
+
+        if (!empty($filters['phone'])) {
+            $query->where('phone', 'like', "%{$filters['phone']}%");
+        }
+
+        if (!empty($filters['email'])) {
+            $query->where('email', 'like', "%{$filters['email']}%");
+        }
+
+        // Legacy search filter (searches across multiple fields)
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {

@@ -20,6 +20,20 @@ class DriverManagementService
         $query = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_DRIVER))
             ->with(['roles', 'driverProfile']);
 
+        // Advanced filters
+        if (!empty($filters['name'])) {
+            $query->where('full_name', 'like', "%{$filters['name']}%");
+        }
+
+        if (!empty($filters['phone'])) {
+            $query->where('phone', 'like', "%{$filters['phone']}%");
+        }
+
+        if (!empty($filters['email'])) {
+            $query->where('email', 'like', "%{$filters['email']}%");
+        }
+
+        // Legacy search filter (searches across multiple fields)
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
@@ -162,5 +176,27 @@ class DriverManagementService
         }
 
         return 'storage/'.$path;
+    }
+
+    public function toggleStatus(int $id, User $actor): User
+    {
+        $user = $this->getDriver($id);
+
+        $oldStatus = $user->account_status;
+        $newStatus = $oldStatus === User::STATUS_ACTIVE ? User::STATUS_INACTIVE : User::STATUS_ACTIVE;
+
+        $user->update(['account_status' => $newStatus]);
+
+        AuditLog::create([
+            'actor_user_id' => $actor->user_id,
+            'action'        => 'driver.status_toggled',
+            'entity_type'   => User::class,
+            'entity_id'     => $user->user_id,
+            'old_value'     => ['account_status' => $oldStatus],
+            'new_value'     => ['account_status' => $newStatus],
+            'description'   => "Driver {$user->full_name} (ID: {$user->user_id}) status changed from {$oldStatus} to {$newStatus} by {$actor->full_name} (ID: {$actor->user_id}).",
+        ]);
+
+        return $user->fresh(['roles', 'driverProfile.vehicles.images']);
     }
 }
