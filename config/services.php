@@ -41,4 +41,10 @@ return [
         'timeout' => (int) env('GOOGLE_ROUTES_TIMEOUT', 15),
     ],
 
+    'google_geocoding' => [
+        'api_key' => env('GOOGLE_GEOCODING_API_KEY', env('GOOGLE_ROUTES_API_KEY')),
+        'base_url' => env('GOOGLE_GEOCODING_BASE_URL', 'https://maps.googleapis.com/maps/api/geocode/json'),
+        'timeout' => (int) env('GOOGLE_GEOCODING_TIMEOUT', 15),
+    ],
+
 ];

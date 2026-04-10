@@ -13,8 +13,12 @@ class RouteService
     public function buildRoute(array $points): array
     {
         $orderedPoints = collect($points)
-            ->sortBy('sequence_order')
             ->values()
+            ->map(function (array $point, int $index) {
+                $point['sequence_order'] = $index + 1;
+
+                return $point;
+            })
             ->all();
 
         if (count($orderedPoints) < 2) {

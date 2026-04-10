@@ -6,6 +6,7 @@ use App\Models\DriverProfile;
 use App\Models\Trip;
 use App\Models\TripStatus;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -14,9 +15,9 @@ class TripService
 {
     public function __construct(
         private readonly RouteService $routeService,
-        private readonly PriceCalculatorService $priceCalculatorService
-    ) 
-    {
+        private readonly PriceCalculatorService $priceCalculatorService,
+        private readonly GovernorateResolverService $governorateResolverService
+    ) {
     }
 
     public function createTrip(array $data, User $actor): Trip
@@ -30,17 +31,23 @@ class TripService
             ]);
         }
 
-        $this->ensureNoActiveTrip($driverProfile);
         $this->ensureSeatCapacity((int) $data['total_seats'], (int) $vehicle->seat_capacity);
 
         $route = $this->routeService->buildRoute($data['points']);
+        $enrichedPoints = $this->governorateResolverService->enrichPointsWithAddresses($route['ordered_points']);
+        $resolvedGovernorates = $this->governorateResolverService->resolveTripGovernorates($enrichedPoints);
+
+        $this->ensureNoTimeOverlap(
+            $driverProfile,
+            (string) $data['departure_time'],
+            (int) $route['estimated_duration_minutes']
+        );
 
         $systemCalculatedPrice = $this->priceCalculatorService->calculateSystemPrice(
             (float) $route['estimated_distance_km'],
-            (int) $route['estimated_duration_minutes'],
         );
 
-        $this->validatePriceRange($data, $systemCalculatedPrice);
+        $this->validatePriceRange($data, $systemCalculatedPrice, (int) $vehicle->seat_capacity);
 
         $pendingStatus = TripStatus::query()
             ->where('status_key', TripStatus::PENDING)
@@ -51,11 +58,11 @@ class TripService
             throw new RuntimeException('Pending trip status not found. Please seed trip statuses first.');
         }
 
-        return DB::transaction(function () use ($data, $driverProfile, $route, $systemCalculatedPrice, $pendingStatus) {
+        return DB::transaction(function () use ($data, $driverProfile, $route, $enrichedPoints, $resolvedGovernorates, $systemCalculatedPrice, $pendingStatus) {
             $trip = Trip::create([
                 'driver_id' => $driverProfile->user_id,
-                'start_governorate_id' => $data['start_governorate_id'],
-                'end_governorate_id' => $data['end_governorate_id'],
+                'start_governorate_id' => $resolvedGovernorates['start_governorate_id'],
+                'end_governorate_id' => $resolvedGovernorates['end_governorate_id'],
                 'departure_time' => $data['departure_time'],
                 'estimated_duration_minutes' => $route['estimated_duration_minutes'],
                 'estimated_distance_km' => $route['estimated_distance_km'],
@@ -72,7 +79,7 @@ class TripService
                 'created_at' => now(),
             ]);
 
-            $trip->points()->createMany($this->prepareTripPoints($route['ordered_points']));
+            $trip->points()->createMany($this->prepareTripPoints($enrichedPoints));
 
             return $trip->load(['points', 'status', 'startGovernorate', 'endGovernorate']);
         });
@@ -91,20 +98,34 @@ class TripService
         return $actor->driverProfile;
     }
 
-    private function ensureNoActiveTrip(DriverProfile $driverProfile): void
-    {
-        $hasActiveTrip = $driverProfile->trips()
+    private function ensureNoTimeOverlap(
+        DriverProfile $driverProfile,
+        string $departureTime,
+        int $estimatedDurationMinutes
+    ): void {
+        $newTripStart = Carbon::parse($departureTime);
+        $newTripEnd = (clone $newTripStart)->addMinutes($estimatedDurationMinutes);
+
+        $overlappingTrip = $driverProfile->trips()
             ->whereHas('status', function ($query) {
                 $query->whereIn('status_key', [
                     TripStatus::PENDING,
                     TripStatus::ACTIVE,
                 ]);
             })
-            ->exists();
+            ->get()
+            ->first(function (Trip $trip) use ($newTripStart, $newTripEnd) {
+                $existingTripStart = Carbon::parse($trip->departure_time);
+                $existingTripEnd = (clone $existingTripStart)
+                    ->addMinutes((int) $trip->estimated_duration_minutes);
 
-        if ($hasActiveTrip) {
+                return $newTripStart < $existingTripEnd
+                    && $newTripEnd > $existingTripStart;
+            });
+
+        if ($overlappingTrip) {
             throw ValidationException::withMessages([
-                'driver_id' => 'لا يمكن للسائق إنشاء أكثر من رحلة نشطة أو قيد الانتظار في نفس الوقت.',
+                'departure_time' => 'لا يمكن إنشاء رحلة تتداخل زمنياً مع رحلة أخرى للسائق قيد الانتظار أو نشطة.',
             ]);
         }
     }
@@ -118,9 +139,9 @@ class TripService
         }
     }
 
-    private function validatePriceRange(array $data, float $systemCalculatedPrice): void
+    private function validatePriceRange(array $data, float $systemCalculatedPrice, int $vehicleSeatCapacity): void
     {
-        $minimumAllowedPrice = round($systemCalculatedPrice * 0.5, 2);
+        $minimumAllowedPrice = round($systemCalculatedPrice * 0.25, 2);
         $maximumAllowedPrice = round($systemCalculatedPrice, 2);
 
         if (! empty($data['allow_shared'])) {
@@ -128,7 +149,8 @@ class TripService
                 (float) $data['shared_price'],
                 $minimumAllowedPrice,
                 $maximumAllowedPrice,
-                'shared_price'
+                'shared_price',
+                $vehicleSeatCapacity
             );
         }
 
@@ -137,7 +159,8 @@ class TripService
                 (float) $data['private_price'],
                 $minimumAllowedPrice,
                 $maximumAllowedPrice,
-                'private_price'
+                'private_price',
+                $vehicleSeatCapacity
             );
         }
     }
@@ -146,8 +169,14 @@ class TripService
         float $price,
         float $minimumAllowedPrice,
         float $maximumAllowedPrice,
-        string $field
+        string $field,
+        int $vehicleSeatCapacity
     ): void {
+        if ($field === 'shared_price') {
+            $minimumAllowedPrice = round($minimumAllowedPrice / $vehicleSeatCapacity, 2);
+            $maximumAllowedPrice = round($maximumAllowedPrice / $vehicleSeatCapacity, 2);
+        }
+
         if ($price < $minimumAllowedPrice || $price > $maximumAllowedPrice) {
             throw ValidationException::withMessages([
                 $field => "السعر يجب أن يكون بين {$minimumAllowedPrice} و {$maximumAllowedPrice}.",
@@ -163,6 +192,7 @@ class TripService
                 'latitude' => $point['latitude'],
                 'longitude' => $point['longitude'],
                 'address' => $point['address'] ?? null,
+                'note' => $point['note'] ?? null,
                 'sequence_order' => $point['sequence_order'],
             ];
         }, $orderedPoints);

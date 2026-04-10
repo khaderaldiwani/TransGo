@@ -17,24 +17,18 @@ class StoreTripRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'start_governorate_id' => ['required', 'integer', 'exists:governorates,governorate_id'],
-            'end_governorate_id' => ['required', 'integer', 'exists:governorates,governorate_id'],
             'departure_time' => ['required', 'date', 'after_or_equal:now'],
             'total_seats' => ['required', 'integer', 'min:1'],
-
             'allow_shared' => ['required', 'boolean'],
             'allow_private' => ['required', 'boolean'],
-
             'shared_price' => ['nullable', 'numeric', 'min:0.01'],
             'private_price' => ['nullable', 'numeric', 'min:0.01'],
             'notes' => ['nullable', 'string', 'max:1000'],
-
             'points' => ['required', 'array', 'min:2'],
             'points.*.point_type' => ['required', 'string', 'in:start,stop,end'],
             'points.*.latitude' => ['required', 'numeric', 'between:-90,90'],
             'points.*.longitude' => ['required', 'numeric', 'between:-180,180'],
-            'points.*.address' => ['nullable', 'string', 'max:500'],
-            'points.*.sequence_order' => ['required', 'integer', 'min:1', 'distinct'],
+            'points.*.note' => ['nullable', 'string', 'max:500'],
         ];
     }
 
@@ -51,12 +45,6 @@ class StoreTripRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'start_governorate_id.required' => 'المحافظة الابتدائية مطلوبة.',
-            'start_governorate_id.integer' => 'معرف المحافظة الابتدائية غير صحيح.',
-            'start_governorate_id.exists' => 'المحافظة الابتدائية غير موجودة.',
-            'end_governorate_id.required' => 'المحافظة النهائية مطلوبة.',
-            'end_governorate_id.integer' => 'معرف المحافظة النهائية غير صحيح.',
-            'end_governorate_id.exists' => 'المحافظة النهائية غير موجودة.',
             'departure_time.required' => 'وقت الانطلاق مطلوب.',
             'departure_time.date' => 'وقت الانطلاق يجب أن يكون تاريخاً صالحاً.',
             'departure_time.after_or_equal' => 'لا يمكن إنشاء رحلة بوقت انطلاق في الماضي.',
@@ -84,12 +72,8 @@ class StoreTripRequest extends FormRequest
             'points.*.longitude.required' => 'خط الطول مطلوب لكل نقطة.',
             'points.*.longitude.numeric' => 'خط الطول يجب أن يكون رقماً صالحاً.',
             'points.*.longitude.between' => 'خط الطول يجب أن يكون بين -180 و 180.',
-            'points.*.address.string' => 'عنوان النقطة يجب أن يكون نصاً.',
-            'points.*.address.max' => 'عنوان النقطة طويل جداً.',
-            'points.*.sequence_order.required' => 'ترتيب النقطة مطلوب.',
-            'points.*.sequence_order.integer' => 'ترتيب النقطة يجب أن يكون رقماً صحيحاً.',
-            'points.*.sequence_order.min' => 'ترتيب النقطة يجب أن يبدأ من 1 فأكثر.',
-            'points.*.sequence_order.distinct' => 'لا يمكن تكرار ترتيب نفس النقطة.',
+            'points.*.note.string' => 'ملاحظة النقطة يجب أن تكون نصاً.',
+            'points.*.note.max' => 'ملاحظة النقطة طويلة جداً.',
         ];
     }
 
@@ -102,10 +86,7 @@ class StoreTripRequest extends FormRequest
 
     private function validateTripTypeSelection(Validator $validator): void
     {
-        $allowShared = $this->boolean('allow_shared');
-        $allowPrivate = $this->boolean('allow_private');
-
-        if (! $allowShared && ! $allowPrivate) {
+        if (! $this->boolean('allow_shared') && ! $this->boolean('allow_private')) {
             $validator->errors()->add(
                 'allow_shared',
                 'يجب اختيار الرحلة المشتركة أو الرحلة الخاصة أو كلاهما.'
@@ -132,8 +113,7 @@ class StoreTripRequest extends FormRequest
 
     private function validateSeatCapacity(Validator $validator): void
     {
-        $user = $this->user();
-        $seatCapacity = data_get($user, 'driverProfile.vehicles.0.seat_capacity');
+        $seatCapacity = data_get($this->user(), 'driverProfile.vehicles.0.seat_capacity');
 
         if ($seatCapacity === null) {
             $validator->errors()->add(
@@ -164,49 +144,19 @@ class StoreTripRequest extends FormRequest
         $endPoints = array_values(array_filter($points, fn ($point) => ($point['point_type'] ?? null) === 'end'));
 
         if (count($startPoints) !== 1) {
-            $validator->errors()->add(
-                'points',
-                'يجب أن تحتوي الرحلة على نقطة بداية واحدة فقط.'
-            );
+            $validator->errors()->add('points', 'يجب أن تحتوي الرحلة على نقطة بداية واحدة فقط.');
         }
 
         if (count($endPoints) !== 1) {
-            $validator->errors()->add(
-                'points',
-                'يجب أن تحتوي الرحلة على نقطة نهاية واحدة فقط.'
-            );
+            $validator->errors()->add('points', 'يجب أن تحتوي الرحلة على نقطة نهاية واحدة فقط.');
         }
 
-        $sequenceOrders = array_column($points, 'sequence_order');
-        $sortedPoints = $points;
-
-        usort($sortedPoints, fn ($first, $second) => ($first['sequence_order'] ?? 0) <=> ($second['sequence_order'] ?? 0));
-
-        $firstPointType = $sortedPoints[0]['point_type'] ?? null;
-        $lastPointType = $sortedPoints[array_key_last($sortedPoints)]['point_type'] ?? null;
-
-        if ($firstPointType !== 'start') {
-            $validator->errors()->add(
-                'points',
-                'أول نقطة في ترتيب الرحلة يجب أن تكون نقطة البداية.'
-            );
+        if (($points[0]['point_type'] ?? null) !== 'start') {
+            $validator->errors()->add('points', 'أول نقطة في الرحلة يجب أن تكون نقطة البداية.');
         }
 
-        if ($lastPointType !== 'end') {
-            $validator->errors()->add(
-                'points',
-                'آخر نقطة في ترتيب الرحلة يجب أن تكون نقطة النهاية.'
-            );
-        }
-
-        $expectedSequence = range(1, count($sequenceOrders));
-        sort($sequenceOrders);
-
-        if ($sequenceOrders !== $expectedSequence) {
-            $validator->errors()->add(
-                'points',
-                'ترتيب نقاط الرحلة يجب أن يكون متسلسلاً بدون فراغات أو تكرار.'
-            );
+        if (($points[array_key_last($points)]['point_type'] ?? null) !== 'end') {
+            $validator->errors()->add('points', 'آخر نقطة في الرحلة يجب أن تكون نقطة النهاية.');
         }
     }
 }

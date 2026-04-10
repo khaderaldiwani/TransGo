@@ -18,6 +18,7 @@ class TripPoint extends Model
         'latitude',
         'longitude',
         'address',
+        'note',
         'sequence_order',
     ];
 
@@ -26,6 +27,7 @@ class TripPoint extends Model
         'trip_id' => 'integer',
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
+        'note' => 'string',
         'sequence_order' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

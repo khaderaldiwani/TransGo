@@ -60,6 +60,7 @@ Route::prefix('v1/driver')->group(function () {
     Route::post('/login', [DriverAuthController::class, 'login'])->middleware('throttle:login');
     
     Route::middleware('auth:sanctum')->group(function(){
+        Route::post('/trips/preview', [TripController::class, 'preview']);
         Route::post('/trips', [TripController::class, 'store']);
     });
     
