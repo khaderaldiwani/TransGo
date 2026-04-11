@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
+use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
+use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
@@ -23,11 +25,26 @@ Route::prefix('v1/auth')->group(function () {
     Route::post('/verify-otp', [OtpController::class, 'verify']);
     Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword']);
     Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword']);
+   Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
+
     });
+
+
+
+
 
 Route::prefix('v1/admin')->group(function () {
     Route::post('/login', [AuthAdminController::class, 'login'])->middleware('throttle:login');
-    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+ 
+    Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
+        // Employees Apis
+        Route::get('/employees', [EmployeeController::class, 'index']);
+        Route::get('/employees/{id}', [EmployeeController::class, 'show']);
+        Route::post('/employees', [EmployeeController::class, 'store']);
+        Route::patch('/employees/{id}', [EmployeeController::class, 'update']);
+        Route::patch('/employees/{id}/disable', [EmployeeController::class, 'disable']);
+        Route::patch('/employees/{id}/enable', [EmployeeController::class, 'enable']);
+
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
@@ -42,12 +59,12 @@ Route::prefix('v1/admin')->group(function () {
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
     });
 
-    Route::middleware(['auth:sanctum', 'role:admin,employee'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active', 'role:admin,employee'])->group(function () {
         Route::get('/trips', [AdminTripController::class, 'index']);
         Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
         Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
-        Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+     //   Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
         
         
     });
