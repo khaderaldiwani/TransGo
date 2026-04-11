@@ -81,7 +81,7 @@ class DriverManagementService
 
         return DB::transaction(function () use ($data, $actor) {
             $temporaryPassword = Str::random(10);
-            $idCardImage = $this->storeFile($data['id_card_image'], 'drivers/id-cards');
+        //    $idCardImage = $this->storeFile($data['id_card_image'], 'drivers/id-cards');
             $licenseImage = $this->storeFile($data['license_image'], 'drivers/licenses');
             $personalPhoto = $this->storeFile($data['personal_photo'], 'drivers/personal-photos');
             $mechanicalCarImage = $this->storeFile($data['mechanical_car'], 'vehicles/mechanical');
@@ -111,7 +111,7 @@ class DriverManagementService
             $driverProfile = DriverProfile::create([
                 'user_id' => $driver->user_id,
                 'address' => $data['address'],
-                'id_card_image' => $this->toPublicStoragePath($idCardImage),
+                'id_card' =>$data['id_card'],
                 'license_image' => $this->toPublicStoragePath($licenseImage),
                 'personal_photo' => $this->toPublicStoragePath($personalPhoto),
                 'approval_status' => DriverProfile::APPROVAL_APPROVED,

@@ -26,7 +26,7 @@ class DriverProfile extends Model
     protected $fillable = [
         'user_id',
         'address',
-        'id_card_image',
+        'id_card',
         'license_image',
         'personal_photo',
         'approval_status',

@@ -18,7 +18,7 @@ class StoreDriverRequest extends FormRequest
             'phone' => ['required', 'string', 'max:20', 'unique:users,phone'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'address' => ['required', 'string', 'max:500'],
-            'id_card_image' => ['required', 'image', 'max:5120'],//رقم السيارة
+            'id_card' => ['required', 'string', 'max:5120'],//رقم السيارة
             'license_image' => ['required', 'image', 'max:5120'],//رخصة القيادة
             'personal_photo' => ['required', 'image', 'max:5120'],//صورة شخصية
             'car_type' => ['required', 'string', 'max:255'],//نوع السيارة

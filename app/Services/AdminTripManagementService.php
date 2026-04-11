@@ -34,12 +34,7 @@ class AdminTripManagementService
                 'filters' => $filters,
                 'summary' => $this->summary(),
                 'items' => $trips,
-                'pagination' => [
-                    'current_page' => 1,
-                    'last_page' => 1,
-                    'per_page' => $trips->count(),
-                    'total' => $trips->count(),
-                ],
+                
             ];
         }
 
@@ -52,12 +47,7 @@ class AdminTripManagementService
             'items' => $paginator->getCollection()->map(
                 fn (Trip $trip) => $this->transformTripSummary($trip)
             )->values(),
-            'pagination' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-            ],
+            
         ];
     }
 
@@ -334,6 +324,7 @@ class AdminTripManagementService
     {
         $meta = $this->buildTripMeta($trip);
         $vehicle = $trip->driver?->vehicles->first();
+        $driver=$trip->driver->first();
         $routePoints = $trip->points->values();
 
         return [
@@ -348,8 +339,8 @@ class AdminTripManagementService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
-                'model' => $vehicle?->certified_agency,
-                'plate_number' => $vehicle?->ownership_document,
+              //  'model' => $vehicle?->certified_agency,
+                'id_card' => $driver?->id_card,
                 'seats' => $vehicle?->seat_capacity,
                 'amenities' => array_values(array_filter([
                     $trip->allow_shared ? 'حجز مشترك' : null,
@@ -374,8 +365,7 @@ class AdminTripManagementService
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
                 'polyline' => $trip->route_polyline,
-                'current_position' => $meta['current_position'],
-                'progress_percent' => $meta['progress_percent'],
+            //    'progress_percent' => $meta['progress_percent'],
                 'points' => $routePoints->map(function ($point, $index) use ($meta) {
                     return [
                         'point_id' => $point->point_id,

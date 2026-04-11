@@ -44,12 +44,15 @@ Route::prefix('v1/admin')->group(function () {
 
     Route::middleware(['auth:sanctum', 'role:admin,employee'])->group(function () {
         Route::get('/trips', [AdminTripController::class, 'index']);
-        Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+        Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
-        Route::get('/trips/{id}', [AdminTripController::class, 'show']);
-        Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel']);
+        Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
+        Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+        
+        
     });
 });
+
 Route::prefix('v1/passenger')->group(function () {
     Route::post('/login', [PassengerAuthController::class, 'login'])->middleware('throttle:login');
     Route::post('/register', [PassengerAuthController::class, 'register']);
@@ -68,14 +71,14 @@ Route::prefix('v1/driver')->group(function () {
     
 });
 
-// LuckyCode package routes
-use LuckyCode\IntegrationHelper\Http\Controllers\LuckyCodeController;
+// //LuckyCode package routes
+// use LuckyCode\IntegrationHelper\Http\Controllers\LuckyCodeController;
 
-Route::prefix('lucky-code')->group(function () {
-    Route::post('pull', [LuckyCodeController::class, 'pullCode']);
-    Route::post('reveal', [LuckyCodeController::class, 'revealCode']);
-    Route::post('redeem', [LuckyCodeController::class, 'redeemCode']);
-    Route::post('multi-pull', [LuckyCodeController::class, 'multiPull']);
-    Route::get('check-serialcode', [LuckyCodeController::class, 'checkSerialCode']);
-    Route::get('customer-log', [LuckyCodeController::class, 'getCustomersLog']);
-});
+// Route::prefix('lucky-code')->group(function () {
+//     Route::post('pull', [LuckyCodeController::class, 'pullCode']);
+//     Route::post('reveal', [LuckyCodeController::class, 'revealCode']);
+//     Route::post('redeem', [LuckyCodeController::class, 'redeemCode']);
+//     Route::post('multi-pull', [LuckyCodeController::class, 'multiPull']);
+//     Route::get('check-serialcode', [LuckyCodeController::class, 'checkSerialCode']);
+//     Route::get('customer-log', [LuckyCodeController::class, 'getCustomersLog']);
+// });
