@@ -16,14 +16,17 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // User::factory(10)->create();
-$this->call([
-    RoleSeeder::class,
-    AdminUserSeeder::class,
-    TripStatusSeeder::class,
-    GovernorateSeeder::class,
-    BookingStatusSeeder::class,
-    BookingAttendanceStatusSeeder::class,
-    CommissionRateSeeder::class,
-]);
+        $this->call([
+            RoleSeeder::class,
+            AdminUserSeeder::class,
+            DriverSeeder::class,
+            PassengerSeeder::class,
+            TripStatusSeeder::class,
+            GovernorateSeeder::class,
+            BookingStatusSeeder::class,
+            BookingAttendanceStatusSeeder::class,
+            CommissionRateSeeder::class,
+            TripSeeder::class,
+        ]);
     }
 }
