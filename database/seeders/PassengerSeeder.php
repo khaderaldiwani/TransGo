@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Wallet;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -52,6 +53,11 @@ class PassengerSeeder extends Seeder
             );
 
             $passenger->roles()->syncWithoutDetaching([$passengerRole->id]);
+
+            Wallet::updateOrCreate(
+                ['user_id' => $passenger->user_id],
+                ['balance' => 150.00]
+            );
         }
     }
 }

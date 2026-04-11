@@ -9,6 +9,10 @@ use App\Models\BookingStatus;
 use App\Models\Payment;
 use App\Models\Trip;
 use App\Models\User;
+use App\Models\Wallet;
+use App\Models\WalletTransaction;
+use App\Models\Notification;
+use App\Models\UserNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -77,17 +81,34 @@ class BookingService
             ]);
         }
 
+        $totalAmount = $this->calculateTotalAmount($trip, $data['booking_type'], $seatsReserved);
+        $pickupPointPayload = $this->buildPickupPointPayload($trip, $data['pickup_point']);
+
+        $wallet = $actor->wallet;
+        $isWalletPayment = $data['payment_method'] === 'electronic';
+
+        if ($isWalletPayment) {
+            if (! $wallet) {
+                throw ValidationException::withMessages([
+                    'payment_method' => 'حساب المحفظة غير متوفر. يرجى تعبئة المحفظة أولاً.',
+                ]);
+            }
+
+            if ($wallet->balance < $totalAmount) {
+                throw ValidationException::withMessages([
+                    'payment_method' => 'رصيد المحفظة غير كافٍ لإكمال الحجز. يرجى إعادة شحن المحفظتك.',
+                ]);
+            }
+        }
+
         $pendingStatus = BookingStatus::query()
-            ->where('status_key', 'pending')
+            ->where('status_key', $isWalletPayment ? 'accepted' : 'pending')
             ->where('is_active', true)
             ->first();
 
         if (! $pendingStatus) {
             throw new RuntimeException('حالة الحجز المبدئية غير موجودة. يرجى تجهيز بيانات الحالة أولاً.');
         }
-
-        $totalAmount = $this->calculateTotalAmount($trip, $data['booking_type'], $seatsReserved);
-        $pickupPointPayload = $this->buildPickupPointPayload($trip, $data['pickup_point']);
 
         return DB::transaction(function () use (
             $actor,
@@ -96,9 +117,11 @@ class BookingService
             $data,
             $seatsReserved,
             $totalAmount,
-            $pickupPointPayload
+            $pickupPointPayload,
+            $wallet,
+            $isWalletPayment
         ) {
-            $booking = Booking::create([
+            $bookingData = [
                 'booking_code' => $this->generateBookingCode(),
                 'trip_id' => $trip->trip_id,
                 'passenger_id' => $actor->user_id,
@@ -107,20 +130,45 @@ class BookingService
                 'payment_method' => $data['payment_method'],
                 'total_amount' => $totalAmount,
                 'status_id' => $pendingStatus->status_id,
-            ]);
+            ];
 
+            if ($isWalletPayment) {
+                $bookingData['confirmed_at'] = now();
+            }
+
+            $booking = Booking::create($bookingData);
             $booking->pickupPoint()->create($pickupPointPayload);
 
-            Payment::create([
+            $payment = Payment::create([
                 'booking_id' => $booking->booking_id,
-                'wallet_id' => null,
+                'wallet_id' => $isWalletPayment ? $wallet->wallet_id : null,
                 'payment_method' => $data['payment_method'],
                 'amount' => $totalAmount,
-                'payment_status' => 'pending',
-                'transaction_reference' => null,
+                'payment_status' => $isWalletPayment ? 'completed' : 'pending',
+                'transaction_reference' => $isWalletPayment ? Str::uuid()->toString() : null,
                 'failure_reason' => null,
-                'paid_at' => null,
+                'paid_at' => $isWalletPayment ? now() : null,
             ]);
+
+            if ($isWalletPayment) {
+                $beforeBalance = $wallet->balance;
+                $afterBalance = round($beforeBalance - $totalAmount, 2);
+
+                $wallet->update(['balance' => $afterBalance]);
+
+                WalletTransaction::create([
+                    'wallet_id' => $wallet->wallet_id,
+                    'related_booking_id' => $booking->booking_id,
+                    'amount' => $totalAmount,
+                    'transaction_type' => 'debit',
+                    'status' => 'completed',
+                    'transaction_reference' => $payment->transaction_reference,
+                    'description' => 'خصم قيمة الحجز من المحفظة الإلكترونية.',
+                    'balance_before' => $beforeBalance,
+                    'balance_after' => $afterBalance,
+                    'performed_by' => $actor->user_id,
+                ]);
+            }
 
             $trip->update([
                 'available_seats' => $data['booking_type'] === 'private'
@@ -130,6 +178,29 @@ class BookingService
             ]);
 
             $booking->load(['trip.driver.user', 'pickupPoint', 'payments', 'passenger']);
+
+            if ($isWalletPayment) {
+                $notification = Notification::create([
+                    'title' => 'تم تأكيد الحجز عبر المحفظة',
+                    'body' => "تم خصم مبلغ {$totalAmount} من محفظتك وتم تأكيد الحجز برمز {$booking->booking_code}.",
+                    'notification_type' => 'booking_confirmed_passenger',
+                    'reference_type' => Booking::class,
+                    'reference_id' => $booking->booking_id,
+                    'created_by' => $actor->user_id,
+                    'target_role' => 'passenger',
+                    'target_governorate_id' => $booking->pickupPoint?->governorate_id,
+                ]);
+
+                UserNotification::firstOrCreate([
+                    'notification_id' => $notification->notification_id,
+                    'user_id' => $actor->user_id,
+                ], [
+                    'is_read' => false,
+                    'is_sent' => true,
+                    'sent_at' => now(),
+                ]);
+            }
+
             event(new BookingCreated($booking));
 
             return $booking;
