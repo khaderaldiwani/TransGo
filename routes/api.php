@@ -25,7 +25,7 @@ Route::prefix('v1/auth')->group(function () {
     Route::post('/verify-otp', [OtpController::class, 'verify']);
     Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword']);
     Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword']);
-   Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
+    Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
 
     });
 
@@ -48,8 +48,10 @@ Route::prefix('v1/admin')->group(function () {
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
+        Route::get('/wallet-topups', [DriverController::class, 'walletTopUps']);
         ///////
         Route::post('/drivers', [DriverController::class, 'store']);
+        Route::post('/drivers/{id}/wallet/top-up', [DriverController::class, 'topUpWallet']);
         // disable or enable driver account
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 

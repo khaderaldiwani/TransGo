@@ -1,11 +1,12 @@
 <?php
 
 namespace App\Services;
-use App\Models\AuditLog;
+
 use App\Models\DriverProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\Wallet;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -15,31 +16,38 @@ use RuntimeException;
 
 class DriverManagementService
 {
+    public function __construct(protected AuditLogService $auditLogService)
+    {
+    }
+
     public function listDrivers(array $filters): LengthAwarePaginator
     {
-        $query = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_DRIVER))
-            ->with(['roles', 'driverProfile']);
+        $query = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
+            ->with(['roles', 'driverProfile', 'wallet']);
 
-        // Advanced filters
-        if (!empty($filters['name'])) {
+        if (! empty($filters['name'])) {
             $query->where('full_name', 'like', "%{$filters['name']}%");
         }
 
-        if (!empty($filters['phone'])) {
+        if (! empty($filters['phone'])) {
             $query->where('phone', 'like', "%{$filters['phone']}%");
         }
 
-        if (!empty($filters['email'])) {
+        if (! empty($filters['email'])) {
             $query->where('email', 'like', "%{$filters['email']}%");
         }
 
-        // Legacy search filter (searches across multiple fields)
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = $filters['search'];
+
             $query->where(function ($q) use ($search) {
                 $q->where('full_name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+
+                if (is_numeric($search)) {
+                    $q->orWhere('user_id', (int) $search);
+                }
             });
         }
 
@@ -47,26 +55,26 @@ class DriverManagementService
             $query->where('account_status', $filters['account_status']);
         }
 
-        if (!empty($filters['approval_status'])) {
-            $query->whereHas('driverProfile', fn($q) => $q->where('approval_status', $filters['approval_status']));
+        if (! empty($filters['approval_status'])) {
+            $query->whereHas('driverProfile', fn ($q) => $q->where('approval_status', $filters['approval_status']));
         }
 
-        $sortBy    = in_array($filters['sort_by'] ?? '', ['full_name', 'email', 'created_at', 'account_status'])
+        $sortBy = in_array($filters['sort_by'] ?? '', ['full_name', 'email', 'created_at', 'account_status'], true)
             ? $filters['sort_by']
             : 'created_at';
         $sortOrder = ($filters['sort_order'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 
         return $query->orderBy($sortBy, $sortOrder)
-                     ->paginate($filters['per_page'] ?? 15);
+            ->paginate($filters['per_page'] ?? 15);
     }
 
     public function getDriver(int $id): User
     {
-        $user = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_DRIVER))
-            ->with(['roles', 'driverProfile.vehicles.images'])
+        $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
+            ->with(['roles', 'driverProfile.vehicles.images', 'wallet'])
             ->find($id);
 
-        if (!$user) {
+        if (! $user) {
             throw new RuntimeException('السائق غير موجود.', 404);
         }
 
@@ -75,13 +83,12 @@ class DriverManagementService
 
     public function createDriver(array $data, User $actor): array
     {
-        if (!$actor->hasAnyRole([Role::ROLE_ADMIN, Role::ROLE_EMPLOYEE])) {
+        if (! $actor->hasAnyRole([Role::ROLE_ADMIN, Role::ROLE_EMPLOYEE])) {
             throw new RuntimeException('Forbidden.', 403);
         }
 
         return DB::transaction(function () use ($data, $actor) {
             $temporaryPassword = Str::random(10);
-        //    $idCardImage = $this->storeFile($data['id_card_image'], 'drivers/id-cards');
             $licenseImage = $this->storeFile($data['license_image'], 'drivers/licenses');
             $personalPhoto = $this->storeFile($data['personal_photo'], 'drivers/personal-photos');
             $mechanicalCarImage = $this->storeFile($data['mechanical_car'], 'vehicles/mechanical');
@@ -94,7 +101,7 @@ class DriverManagementService
                 'phone' => $data['phone'],
                 'email' => $data['email'],
                 'password' => Hash::make($temporaryPassword),
-                'must_change_password'=>1,
+                'must_change_password' => 1,
                 'account_status' => User::STATUS_ACTIVE,
                 'created_by' => $actor->user_id,
                 'registration_type' => User::REGISTRATION_ADMIN,
@@ -102,7 +109,7 @@ class DriverManagementService
 
             $driverRole = Role::where('name', Role::ROLE_DRIVER)->first();
 
-            if (!$driverRole) {
+            if (! $driverRole) {
                 throw new RuntimeException('Driver role not found. Please seed roles first.', 500);
             }
 
@@ -111,7 +118,7 @@ class DriverManagementService
             $driverProfile = DriverProfile::create([
                 'user_id' => $driver->user_id,
                 'address' => $data['address'],
-                'id_card' =>$data['id_card'],
+                'id_card' => $data['id_card'],
                 'license_image' => $this->toPublicStoragePath($licenseImage),
                 'personal_photo' => $this->toPublicStoragePath($personalPhoto),
                 'approval_status' => DriverProfile::APPROVAL_APPROVED,
@@ -133,22 +140,27 @@ class DriverManagementService
                 ]);
             }
 
-            AuditLog::create([
-                'actor_user_id' => $actor->user_id,
-                'action' => 'driver.created',
-                'entity_type' => User::class,
-                'entity_id' => $driver->user_id,
-                'old_value' => null,
-                'new_value' => [
+            Wallet::firstOrCreate(
+                ['user_id' => $driver->user_id],
+                ['balance' => 0]
+            );
+
+            $this->auditLogService->log(
+                $actor,
+                'driver.created',
+                User::class,
+                $driver->user_id,
+                null,
+                [
                     'full_name' => $driver->full_name,
                     'phone' => $driver->phone,
                     'email' => $driver->email,
                 ],
-                'description' => "Driver {$driver->full_name} (ID: {$driver->user_id}) created by {$actor->full_name} (ID: {$actor->user_id}).",
-            ]);
+                "Driver {$driver->full_name} (ID: {$driver->user_id}) created by {$actor->full_name} (ID: {$actor->user_id})."
+            );
 
             return [
-                'driver' => $driver->load('roles'),
+                'driver' => $driver->load(['roles', 'wallet']),
                 'driver_profile' => $driverProfile,
                 'vehicle' => $vehicle->load('images'),
                 'temporary_password' => $temporaryPassword,
@@ -163,7 +175,7 @@ class DriverManagementService
 
     private function storeNullableFile(?UploadedFile $file, string $directory): ?string
     {
-        if (!$file) {
+        if (! $file) {
             return null;
         }
 
@@ -172,7 +184,7 @@ class DriverManagementService
 
     private function toPublicStoragePath(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
 
@@ -188,16 +200,16 @@ class DriverManagementService
 
         $user->update(['account_status' => $newStatus]);
 
-        AuditLog::create([
-            'actor_user_id' => $actor->user_id,
-            'action'        => 'driver.status_toggled',
-            'entity_type'   => User::class,
-            'entity_id'     => $user->user_id,
-            'old_value'     => ['account_status' => $oldStatus],
-            'new_value'     => ['account_status' => $newStatus],
-            'description'   => "Driver {$user->full_name} (ID: {$user->user_id}) status changed from {$oldStatus} to {$newStatus} by {$actor->full_name} (ID: {$actor->user_id}).",
-        ]);
+        $this->auditLogService->log(
+            $actor,
+            'driver.status_toggled',
+            User::class,
+            $user->user_id,
+            ['account_status' => $oldStatus],
+            ['account_status' => $newStatus],
+            "Driver {$user->full_name} (ID: {$user->user_id}) status changed from {$oldStatus} to {$newStatus} by {$actor->full_name} (ID: {$actor->user_id})."
+        );
 
-        return $user->fresh(['roles', 'driverProfile.vehicles.images']);
+        return $user->fresh(['roles', 'driverProfile.vehicles.images', 'wallet']);
     }
 }

@@ -2,11 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\AuditLog;
-use App\Models\Notification;
 use App\Models\Role;
 use App\Models\User;
-use App\Models\UserNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +11,12 @@ use RuntimeException;
 
 class EmployeeManagementService
 {
+    public function __construct(
+        protected AuditLogService $auditLogService,
+        protected UserNotificationService $userNotificationService
+    ) {
+    }
+
     public function listEmployees(array $filters): LengthAwarePaginator
     {
         $query = User::whereHas('roles', fn ($q) => $q->whereIn('name', [Role::ROLE_ADMIN, Role::ROLE_EMPLOYEE]))
@@ -93,20 +96,20 @@ class EmployeeManagementService
 
             $employee->roles()->attach($role->id);
 
-            AuditLog::create([
-                'actor_user_id' => $actor->user_id,
-                'action' => 'employee.created',
-                'entity_type' => User::class,
-                'entity_id' => $employee->user_id,
-                'old_value' => null,
-                'new_value' => [
+            $this->auditLogService->log(
+                $actor,
+                'employee.created',
+                User::class,
+                $employee->user_id,
+                null,
+                [
                     'full_name' => $employee->full_name,
                     'phone' => $employee->phone,
                     'email' => $employee->email,
                     'role' => $role->name,
                 ],
-                'description' => "Employee {$employee->full_name} (ID: {$employee->user_id}) created by {$actor->full_name} (ID: {$actor->user_id}).",
-            ]);
+                "Employee {$employee->full_name} (ID: {$employee->user_id}) created by {$actor->full_name} (ID: {$actor->user_id})."
+            );
 
             return $employee->load('roles');
         });
@@ -149,19 +152,19 @@ class EmployeeManagementService
 
         $employee->load('roles');
 
-        AuditLog::create([
-            'actor_user_id' => $actor->user_id,
-            'action' => 'employee.updated',
-            'entity_type' => User::class,
-            'entity_id' => $employee->user_id,
-            'old_value' => $oldValues,
-            'new_value' => [
+        $this->auditLogService->log(
+            $actor,
+            'employee.updated',
+            User::class,
+            $employee->user_id,
+            $oldValues,
+            [
                 'full_name' => $employee->full_name,
                 'phone' => $employee->phone,
                 'role' => $employee->roles->pluck('name')->values()->all(),
             ],
-            'description' => "Employee {$employee->full_name} (ID: {$employee->user_id}) updated by {$actor->full_name} (ID: {$actor->user_id}).",
-        ]);
+            "Employee {$employee->full_name} (ID: {$employee->user_id}) updated by {$actor->full_name} (ID: {$actor->user_id})."
+        );
 
         return $employee;
     }
@@ -181,21 +184,22 @@ class EmployeeManagementService
         $oldStatus = $employee->account_status;
         $employee->update(['account_status' => User::STATUS_INACTIVE]);
 
-        AuditLog::create([
-            'actor_user_id' => $actor->user_id,
-            'action' => 'employee.disabled',
-            'entity_type' => User::class,
-            'entity_id' => $employee->user_id,
-            'old_value' => ['account_status' => $oldStatus],
-            'new_value' => ['account_status' => $employee->account_status],
-            'description' => "Employee {$employee->full_name} (ID: {$employee->user_id}) disabled by {$actor->full_name} (ID: {$actor->user_id}).",
-        ]);
+        $this->auditLogService->log(
+            $actor,
+            'employee.disabled',
+            User::class,
+            $employee->user_id,
+            ['account_status' => $oldStatus],
+            ['account_status' => $employee->account_status],
+            "Employee {$employee->full_name} (ID: {$employee->user_id}) disabled by {$actor->full_name} (ID: {$actor->user_id})."
+        );
 
         $this->notifyDisabledEmployee($employee, $actor);
 
         return $employee->fresh('roles');
     }
-public function enableEmployee(int $id, User $actor): User
+
+    public function enableEmployee(int $id, User $actor): User
     {
         if (! $actor->hasAnyRole([Role::ROLE_ADMIN])) {
             throw new RuntimeException('Forbidden.', 403);
@@ -210,20 +214,21 @@ public function enableEmployee(int $id, User $actor): User
         $oldStatus = $employee->account_status;
         $employee->update(['account_status' => User::STATUS_ACTIVE]);
 
-        AuditLog::create([
-            'actor_user_id' => $actor->user_id,
-            'action' => 'employee.enabled',
-            'entity_type' => User::class,
-            'entity_id' => $employee->user_id,
-            'old_value' => ['account_status' => $oldStatus],
-            'new_value' => ['account_status' => $employee->account_status],
-            'description' => "Employee {$employee->full_name} (ID: {$employee->user_id}) enabled by {$actor->full_name} (ID: {$actor->user_id}).",
-        ]);
+        $this->auditLogService->log(
+            $actor,
+            'employee.enabled',
+            User::class,
+            $employee->user_id,
+            ['account_status' => $oldStatus],
+            ['account_status' => $employee->account_status],
+            "Employee {$employee->full_name} (ID: {$employee->user_id}) enabled by {$actor->full_name} (ID: {$actor->user_id})."
+        );
 
         $this->notifyDisabledEmployee($employee, $actor);
 
         return $employee->fresh('roles');
     }
+
     private function resolveRole(?string $roleName): Role
     {
         if (! in_array($roleName, [Role::ROLE_ADMIN, Role::ROLE_EMPLOYEE], true)) {
@@ -241,7 +246,7 @@ public function enableEmployee(int $id, User $actor): User
 
     private function notifyDisabledEmployee(User $employee, User $actor): void
     {
-        $notification = Notification::create([
+        $this->userNotificationService->notifyUser($employee->user_id, [
             'title' => 'تعطيل الحساب',
             'body' => 'تم تعطيل حسابك بواسطة الإدارة. يرجى التواصل مع الدعم للمساعدة.',
             'notification_type' => 'employee_disabled',
@@ -250,16 +255,5 @@ public function enableEmployee(int $id, User $actor): User
             'created_by' => $actor->user_id,
             'target_role' => Role::ROLE_EMPLOYEE,
         ]);
-
-        UserNotification::firstOrCreate(
-            [
-                'notification_id' => $notification->notification_id,
-                'user_id' => $employee->user_id,
-            ],
-            [
-                'is_sent' => true,
-                'sent_at' => now(),
-            ]
-        );
     }
 }

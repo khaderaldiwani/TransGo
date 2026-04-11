@@ -4,16 +4,21 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreDriverRequest;
+use App\Http\Requests\Admin\TopUpDriverWalletRequest;
+use App\Http\Requests\Admin\WalletTopUpFilterRequest;
 use App\Http\Resources\ApiResponse;
 use App\Services\DriverManagementService;
+use App\Services\DriverWalletService;
 use Illuminate\Http\Request;
 use RuntimeException;
 use Throwable;
 
 class DriverController extends Controller
 {
-    public function __construct(protected DriverManagementService $driverManagementService)
-    {
+    public function __construct(
+        protected DriverManagementService $driverManagementService,
+        protected DriverWalletService $driverWalletService
+    ) {
     }
 
     public function index(Request $request)
@@ -61,6 +66,30 @@ class DriverController extends Controller
             return ApiResponse::success('تم تغيير حالة الحساب بنجاح.', 200, $driver);
         } catch (RuntimeException $e) {
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
+
+    public function topUpWallet(int $id, TopUpDriverWalletRequest $request)
+    {
+        try {
+            $result = $this->driverWalletService->topUp($id, $request->validated(), $request->user());
+
+            return ApiResponse::success('تم شحن محفظة السائق بنجاح.', 200, $result);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
+
+    public function walletTopUps(WalletTopUpFilterRequest $request)
+    {
+        try {
+            $transactions = $this->driverWalletService->listTopUps($request->validated());
+
+            return ApiResponse::success('تم جلب سجل شحن المحافظ بنجاح.', 200, $transactions);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع.', 500);
         }
