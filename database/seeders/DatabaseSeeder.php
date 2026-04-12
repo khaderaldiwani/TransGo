@@ -19,14 +19,12 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RoleSeeder::class,
             AdminUserSeeder::class,
-            DriverSeeder::class,
-            PassengerSeeder::class,
             TripStatusSeeder::class,
             GovernorateSeeder::class,
             BookingStatusSeeder::class,
             BookingAttendanceStatusSeeder::class,
             CommissionRateSeeder::class,
-            TripSeeder::class,
+            
         ]);
     }
 }
