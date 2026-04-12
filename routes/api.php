@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
+use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
@@ -45,6 +46,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::patch('/employees/{id}', [EmployeeController::class, 'update']);
         Route::patch('/employees/{id}/disable', [EmployeeController::class, 'disable']);
         Route::patch('/employees/{id}/enable', [EmployeeController::class, 'enable']);
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
