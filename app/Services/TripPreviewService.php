@@ -46,7 +46,19 @@ class TripPreviewService
                 : null,
             'start_governorate' => $resolvedGovernorates['start_governorate'],
             'end_governorate' => $resolvedGovernorates['end_governorate'],
-            'ordered_points' => $enrichedPoints,
+            'ordered_points' => collect($enrichedPoints)->map(function (array $point) use ($data, $route) {
+                $expectedArrivalTime = isset($data['departure_time'])
+                    ? $this->routeService->resolveExpectedArrivalTime(
+                        (string) $data['departure_time'],
+                        isset($point['eta_offset_seconds']) ? (int) $point['eta_offset_seconds'] : null
+                    )
+                    : null;
+
+                return [
+                    ...$point,
+                    'expected_arrival_time' => $expectedArrivalTime?->toIso8601String(),
+                ];
+            })->values()->all(),
         ];
     }
 

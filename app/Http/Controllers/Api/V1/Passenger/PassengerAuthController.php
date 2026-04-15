@@ -55,7 +55,7 @@ class PassengerAuthController extends Controller
             return ApiResponse::success('تم التسجيل بنجاح. يرجى التحقق من رقم هاتفك.', 201, 
             [
                 'user' => $result['user'],
-                'otp' => $result['otp'],                
+                'otp' => $result['otp'] ?? null,
             ]
             
             );

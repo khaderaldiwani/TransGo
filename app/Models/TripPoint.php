@@ -20,6 +20,7 @@ class TripPoint extends Model
         'address',
         'note',
         'sequence_order',
+        'expected_arrival_time',
     ];
 
     protected $casts = [
@@ -29,6 +30,7 @@ class TripPoint extends Model
         'longitude' => 'decimal:7',
         'note' => 'string',
         'sequence_order' => 'integer',
+        'expected_arrival_time' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

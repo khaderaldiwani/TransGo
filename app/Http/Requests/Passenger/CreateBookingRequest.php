@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Passenger;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class CreateBookingRequest extends FormRequest
 {
@@ -20,33 +21,56 @@ class CreateBookingRequest extends FormRequest
             'payment_method' => ['required', 'string', 'in:electronic,cash'],
             'pickup_point' => ['required', 'array'],
             'pickup_point.trip_point_id' => ['nullable', 'integer', 'exists:trip_points,point_id'],
-            'pickup_point.is_new' => ['sometimes', 'boolean'],
-            'pickup_point.governorate_id' => ['nullable', 'integer', 'exists:governorates,governorate_id'],
+            'pickup_point.point_type' => ['nullable', 'string', 'max:50'],
             'pickup_point.point_name' => ['nullable', 'string', 'max:255'],
             'pickup_point.address' => ['nullable', 'string', 'max:1000'],
-            'pickup_point.latitude' => ['nullable', 'numeric'],
-            'pickup_point.longitude' => ['nullable', 'numeric'],
+            'pickup_point.latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'pickup_point.longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'pickup_point.note' => ['nullable', 'string', 'max:500'],
             'pickup_point.meeting_time' => ['nullable', 'date'],
         ];
     }
 
-    public function withValidator($validator)
+    public function withValidator($validator): void
     {
-        $validator->after(function ($validator) {
-            $data = $this->all();
+        $validator->after(function (Validator $validator) {
+            $bookingType = (string) $this->input('booking_type');
+            $pickupPoint = $this->input('pickup_point', []);
 
-            if (! empty($data['booking_type']) && $data['booking_type'] === 'shared' && empty($data['seats_reserved'])) {
-                $validator->errors()->add('seats_reserved', 'يجب تحديد عدد المقاعد للحجز المشترك.');
+            if ($bookingType === 'shared' && ! $this->filled('seats_reserved')) {
+                $validator->errors()->add('seats_reserved', 'عدد المقاعد مطلوب للحجز المشترك.');
             }
 
-            if (empty($data['pickup_point']['trip_point_id']) && empty($data['pickup_point']['governorate_id'])) {
-                $validator->errors()->add('pickup_point', 'يجب تحديد نقطة توقف موجودة أو إضافة نقطة جديدة.');
+            if ($bookingType === 'private' && $this->filled('seats_reserved')) {
+                $validator->errors()->add('seats_reserved', 'لا يجب إرسال عدد المقاعد عند الحجز الخاص.');
             }
 
-            if (empty($data['pickup_point']['trip_point_id']) && ! empty($data['pickup_point']['governorate_id'])) {
-                if (empty($data['pickup_point']['point_name']) || ! isset($data['pickup_point']['latitude']) || ! isset($data['pickup_point']['longitude'])) {
-                    $validator->errors()->add('pickup_point', 'يجب تحديد اسم الموقع وخط العرض وخط الطول لنقطة التوقف الجديدة.');
-                }
+            if (! is_array($pickupPoint)) {
+                return;
+            }
+
+            $hasExistingTripPoint = ! empty($pickupPoint['trip_point_id']);
+            $hasNewPointPayload = isset($pickupPoint['latitude'], $pickupPoint['longitude']);
+
+            if (! $hasExistingTripPoint && ! $hasNewPointPayload) {
+                $validator->errors()->add(
+                    'pickup_point',
+                    'يجب اختيار نقطة توقف من المسار أو إنشاء نقطة جديدة على الخريطة.'
+                );
+            }
+
+            if ($hasExistingTripPoint && $hasNewPointPayload) {
+                $validator->errors()->add(
+                    'pickup_point',
+                    'اختر نقطة توقف موجودة أو أنشئ نقطة جديدة، ولا ترسل الخيارين معاً.'
+                );
+            }
+
+            if ($hasNewPointPayload && empty($pickupPoint['note']) && empty($pickupPoint['point_name'])) {
+                $validator->errors()->add(
+                    'pickup_point.note',
+                    'يجب إدخال ملاحظة أو اسم لنقطة التوقف الجديدة.'
+                );
             }
         });
     }

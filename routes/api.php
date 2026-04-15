@@ -87,7 +87,16 @@ Route::prefix('v1/passenger')->group(function () {
 Route::prefix('v1/driver')->group(function () {
     Route::post('/login', [DriverAuthController::class, 'login'])->middleware('throttle:login');
     
-    Route::middleware('auth:sanctum')->group(function(){
+    Route::middleware(['auth:sanctum', 'active', 'role:driver'])->group(function(){
+        Route::get('/trips', [TripController::class, 'index']);
+        Route::get('/trips/pending', [TripController::class, 'pending']);
+        Route::get('/trips/current', [TripController::class, 'current']);
+        Route::get('/trips/completed', [TripController::class, 'completed']);
+        Route::get('/trips/canceled', [TripController::class, 'canceled']);
+        //
+        Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
+        Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
+        Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');
         Route::post('/trips/preview', [TripController::class, 'preview']);
         Route::post('/trips', [TripController::class, 'store']);
     });

@@ -17,6 +17,7 @@ class PreviewTripRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'departure_time' => ['nullable', 'date', 'after_or_equal:now'],
             'total_seats' => ['required', 'integer', 'min:1'],
             'allow_shared' => ['required', 'boolean'],
             'allow_private' => ['required', 'boolean'],

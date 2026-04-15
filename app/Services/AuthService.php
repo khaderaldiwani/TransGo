@@ -46,11 +46,11 @@ class AuthService
 
             $user->roles()->attach($role->id);
 
-            // generate OTP
-            $this->otpService->generate($user);
+            // Generate and return the OTP record so the API response matches the service contract.
+            $otp = $this->otpService->generate($user);
             return [
                 'user' => $user,
-                
+                'otp' => $otp,
             ];
         });
     }

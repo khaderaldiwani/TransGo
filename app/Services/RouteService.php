@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class RouteService
 {
@@ -28,8 +30,13 @@ class RouteService
         $googleRoute = $this->fetchGoogleRoute($orderedPoints);
 
         if ($googleRoute !== null) {
+            $orderedPointsWithEtas = $this->attachGooglePointEtas(
+                $orderedPoints,
+                $googleRoute['leg_duration_seconds'] ?? []
+            );
+
             return [
-                'ordered_points' => $orderedPoints,
+                'ordered_points' => $orderedPointsWithEtas,
                 'estimated_distance_km' => $googleRoute['estimated_distance_km'],
                 'estimated_duration_minutes' => $googleRoute['estimated_duration_minutes'],
                 'polyline' => $googleRoute['polyline'],
@@ -56,7 +63,7 @@ class RouteService
         );
 
         return [
-            'ordered_points' => $orderedPoints,
+            'ordered_points' => $this->attachFallbackPointEtas($orderedPoints, $durationMinutes),
             'estimated_distance_km' => round($distanceKm, 2),
             'estimated_duration_minutes' => $durationMinutes,
             'polyline' => null,
@@ -109,15 +116,19 @@ class RouteService
             'units' => 'METRIC',
         ];
 
-        $response = Http::timeout((int) config('services.google_routes.timeout', 15))
-            ->withHeaders([
-                'X-Goog-Api-Key' => $apiKey,
-                'X-Goog-FieldMask' => 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
-            ])
-            ->post(
-                rtrim((string) config('services.google_routes.base_url'), '/') . ':computeRoutes',
-                $payload
-            );
+        try {
+            $response = Http::timeout((int) config('services.google_routes.timeout', 15))
+                ->withHeaders([
+                    'X-Goog-Api-Key' => $apiKey,
+                    'X-Goog-FieldMask' => 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.duration',
+                ])
+                ->post(
+                    rtrim((string) config('services.google_routes.base_url'), '/') . ':computeRoutes',
+                    $payload
+                );
+        } catch (Throwable) {
+            return null;
+        }
 
         if ($response->failed()) {
             return null;
@@ -131,12 +142,60 @@ class RouteService
 
         $distanceMeters = (float) ($route['distanceMeters'] ?? 0);
         $durationSeconds = $this->parseDurationToSeconds((string) ($route['duration'] ?? '0s'));
+        $legDurationSeconds = collect($route['legs'] ?? [])
+            ->map(fn (array $leg) => $this->parseDurationToSeconds((string) ($leg['duration'] ?? '0s')))
+            ->values()
+            ->all();
 
         return [
             'estimated_distance_km' => round($distanceMeters / self::METERS_PER_KILOMETER, 2),
             'estimated_duration_minutes' => (int) max(1, ceil($durationSeconds / 60)),
             'polyline' => data_get($route, 'polyline.encodedPolyline'),
+            'leg_duration_seconds' => $legDurationSeconds,
         ];
+    }
+
+    private function attachGooglePointEtas(array $orderedPoints, array $legDurationSeconds): array
+    {
+        $cumulativeSeconds = 0;
+
+        return collect($orderedPoints)
+            ->values()
+            ->map(function (array $point, int $index) use (&$cumulativeSeconds, $legDurationSeconds) {
+                if ($index === 0) {
+                    $point['eta_offset_seconds'] = 0;
+                    return $point;
+                }
+
+                $cumulativeSeconds += (int) ($legDurationSeconds[$index - 1] ?? 0);
+                $point['eta_offset_seconds'] = $cumulativeSeconds;
+
+                return $point;
+            })
+            ->all();
+    }
+
+    private function attachFallbackPointEtas(array $orderedPoints, int $durationMinutes): array
+    {
+        $steps = max(1, count($orderedPoints) - 1);
+        $totalSeconds = $durationMinutes * 60;
+
+        return collect($orderedPoints)
+            ->values()
+            ->map(function (array $point, int $index) use ($steps, $totalSeconds) {
+                $point['eta_offset_seconds'] = (int) round(($index / $steps) * $totalSeconds);
+                return $point;
+            })
+            ->all();
+    }
+
+    public function resolveExpectedArrivalTime(string $departureTime, ?int $etaOffsetSeconds): ?Carbon
+    {
+        if ($etaOffsetSeconds === null) {
+            return null;
+        }
+
+        return Carbon::parse($departureTime)->addSeconds($etaOffsetSeconds);
     }
 
     private function calculateDistanceBetweenPoints(

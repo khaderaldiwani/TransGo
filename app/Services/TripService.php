@@ -79,7 +79,10 @@ class TripService
                 'created_at' => now(),
             ]);
 
-            $trip->points()->createMany($this->prepareTripPoints($enrichedPoints));
+            $trip->points()->createMany($this->prepareTripPoints(
+                $enrichedPoints,
+                (string) $data['departure_time']
+            ));
 
             return $trip->load(['points', 'status', 'startGovernorate', 'endGovernorate']);
         });
@@ -184,9 +187,9 @@ class TripService
         }
     }
 
-    private function prepareTripPoints(array $orderedPoints): array
+    private function prepareTripPoints(array $orderedPoints, string $departureTime): array
     {
-        return array_map(function (array $point) {
+        return array_map(function (array $point) use ($departureTime) {
             return [
                 'point_type' => $point['point_type'],
                 'latitude' => $point['latitude'],
@@ -194,6 +197,10 @@ class TripService
                 'address' => $point['address'] ?? null,
                 'note' => $point['note'] ?? null,
                 'sequence_order' => $point['sequence_order'],
+                'expected_arrival_time' => $this->routeService->resolveExpectedArrivalTime(
+                    $departureTime,
+                    isset($point['eta_offset_seconds']) ? (int) $point['eta_offset_seconds'] : null
+                ),
             ];
         }, $orderedPoints);
     }

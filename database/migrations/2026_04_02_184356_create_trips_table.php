@@ -23,7 +23,7 @@ return new class extends Migration
                 ->constrained('governorates', 'governorate_id')
                 ->restrictOnDelete();
 
-            $table->timestamp('departure_time');
+            $table->dateTime('departure_time');
 
             $table->integer('estimated_duration_minutes')->nullable();
             $table->decimal('estimated_distance_km', 8, 2)->nullable();

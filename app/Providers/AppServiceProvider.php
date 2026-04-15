@@ -65,8 +65,8 @@ class AppServiceProvider extends ServiceProvider
                 'user_id' => $driverUser->user_id,
             ], [
                 'is_read' => false,
-                'is_sent' => false,
-                'sent_at' => null,
+                'is_sent' => true,
+                'sent_at' => now(),
             ]);
         });
     }
