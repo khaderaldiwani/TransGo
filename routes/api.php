@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
@@ -69,6 +70,9 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
         Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
+        Route::get('/bookings', [AdminBookingController::class, 'index']);
+        Route::get('/bookings/{bookingId}', [AdminBookingController::class, 'show']);
+        Route::patch('/bookings/{bookingId}/status', [AdminBookingController::class, 'updateStatus']);
      //   Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
         
         
@@ -103,14 +107,3 @@ Route::prefix('v1/driver')->group(function () {
     
 });
 
-// //LuckyCode package routes
-// use LuckyCode\IntegrationHelper\Http\Controllers\LuckyCodeController;
-
-// Route::prefix('lucky-code')->group(function () {
-//     Route::post('pull', [LuckyCodeController::class, 'pullCode']);
-//     Route::post('reveal', [LuckyCodeController::class, 'revealCode']);
-//     Route::post('redeem', [LuckyCodeController::class, 'redeemCode']);
-//     Route::post('multi-pull', [LuckyCodeController::class, 'multiPull']);
-//     Route::get('check-serialcode', [LuckyCodeController::class, 'checkSerialCode']);
-//     Route::get('customer-log', [LuckyCodeController::class, 'getCustomersLog']);
-// });
