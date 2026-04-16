@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Booking;
 use App\Models\BookingStatus;
 use App\Models\Trip;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -14,31 +15,31 @@ class AdminBookingManagementService
     {
         $filters = $this->normalizeFilters($filters);
 
-        $query = $this->baseTripQuery()
-            ->with(['bookings' => function (Builder $query) use ($filters) {
-                $this->applyBookingFilters($query, $filters);
-                $query->with([
-                    'passenger',
-                    'status',
-                    'pickupPoint.governorate',
-                    'pickupPoint.tripPoint',
-                    'payments',
-                    'review',
-                ])->orderByDesc('created_at');
-            }]);
+        $query = Trip::query()
+            ->has('bookings')
+            ->with([
+                'driver.user',
+                'status',
+                'startGovernorate',
+                'endGovernorate',
+                'bookings.passenger',
+                'bookings.status',
+                'bookings.pickupPoint.governorate',
+                'bookings.pickupPoint.tripPoint',
+                'bookings.payments',
+                'bookings.review',
+            ]);
 
         if ($filters['trip_id'] !== null) {
-            $query->where('trip_id', $filters['trip_id']);
+            $query->where('trips.trip_id', $filters['trip_id']);
         }
 
         if ($filters['search'] !== '') {
             $search = $filters['search'];
-
             $query->where(function (Builder $query) use ($search) {
                 $query->whereHas('driver.user', function (Builder $driverQuery) use ($search) {
                     $driverQuery->where('full_name', 'like', "%{$search}%");
-                })
-                ->orWhereHas('bookings', function (Builder $bookingQuery) use ($search) {
+                })->orWhereHas('bookings', function (Builder $bookingQuery) use ($search) {
                     $bookingQuery->where('booking_code', 'like', "%{$search}%")
                         ->orWhereHas('passenger', function (Builder $passengerQuery) use ($search) {
                             $passengerQuery->where('full_name', 'like', "%{$search}%");
@@ -47,16 +48,47 @@ class AdminBookingManagementService
             });
         }
 
-        $query->whereHas('bookings', function (Builder $bookingQuery) use ($filters) {
-            $this->applyBookingFilters($bookingQuery, $filters);
-        });
+        // Apply booking filters to determine which trips to show
+        $hasBookingFilters = $filters['status'] !== '' 
+            || $filters['payment_method'] !== '' 
+            || $filters['from_date'] !== '' 
+            || $filters['to_date'] !== '';
+        
+        if ($hasBookingFilters) {
+            $query->whereHas('bookings', function (Builder $bookingQuery) use ($filters) {
+                $this->applyBookingFilters($bookingQuery, $filters);
+            });
+        }
 
-        /** @var LengthAwarePaginator $paginator */
         $paginator = $query->orderBy('departure_time')->paginate($filters['per_page']);
 
-        $items = $paginator->getCollection()
-            ->map(fn (Trip $trip) => $this->transformTripWithBookings($trip, $filters))
-            ->values();
+        $items = collect();
+        foreach ($paginator->getCollection() as $trip) {
+            $bookings = $trip->bookings;
+            
+            // Filter bookings for display
+            if ($hasBookingFilters) {
+                $tempQuery = Booking::query();
+                $this->applyBookingFilters($tempQuery, $filters);
+                $bookingIds = $tempQuery->pluck('booking_id')->toArray();
+                $bookings = $bookings->whereIn('booking_id', $bookingIds);
+            }
+            
+            // Apply search filter to bookings
+            if ($filters['search'] !== '') {
+                $search = $filters['search'];
+                $driverMatchesSearch = $this->containsIgnoreCase($trip->driver?->user?->full_name, $search);
+                
+                if (!$driverMatchesSearch) {
+                    $bookings = $bookings->filter(function ($booking) use ($search) {
+                        return $this->containsIgnoreCase($booking->booking_code, $search)
+                            || $this->containsIgnoreCase($booking->passenger?->full_name, $search);
+                    });
+                }
+            }
+            
+            $items->push($this->transformTripWithBookings($trip, $bookings));
+        }
 
         return [
             'filters' => $filters,
@@ -70,19 +102,8 @@ class AdminBookingManagementService
                 'trip_count' => $paginator->total(),
                 'booking_count' => $items->sum('bookings_count'),
             ],
-            'items' => $items,
+            'items' => $items->values(),
         ];
-    }
-
-    private function baseTripQuery(): Builder
-    {
-        return Trip::query()
-            ->with([
-                'driver.user',
-                'status',
-                'startGovernorate',
-                'endGovernorate',
-            ]);
     }
 
     private function applyBookingFilters(Builder $query, array $filters): Builder
@@ -92,7 +113,9 @@ class AdminBookingManagementService
                 ->where('status_key', $filters['status'])
                 ->value('status_id');
 
-            $query->where('status_id', $statusId ?? 0);
+            if ($statusId) {
+                $query->where('status_id', $statusId);
+            }
         }
 
         if ($filters['payment_method'] !== '') {
@@ -110,24 +133,12 @@ class AdminBookingManagementService
         return $query;
     }
 
-    private function transformTripWithBookings(Trip $trip, array $filters): array
+    private function transformTripWithBookings(Trip $trip, Collection $bookings): array
     {
-        $search = $filters['search'];
-        $driverMatchesSearch = $search !== '' && $this->containsIgnoreCase($trip->driver?->user?->full_name, $search);
-
-        $bookings = $trip->bookings->filter(function ($booking) use ($search, $driverMatchesSearch) {
-            if ($search === '' || $driverMatchesSearch) {
-                return true;
-            }
-
-            return $this->containsIgnoreCase($booking->booking_code, $search)
-                || $this->containsIgnoreCase($booking->passenger?->full_name, $search);
-        })->values();
-
         return [
             'trip_id' => $trip->trip_id,
             'departure' => [
-                'at' => optional($trip->departure_time)->toIso8601String(),
+                'at' => $trip->departure_time?->toIso8601String(),
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
             ],
@@ -142,15 +153,15 @@ class AdminBookingManagementService
             ],
             'bookings_count' => $bookings->count(),
             'bookings' => $bookings->map(function ($booking) {
-                $payment = $booking->payments->sortByDesc('payment_id')->first();
-
+                $payment = $booking->payments?->sortByDesc('payment_id')->first();
+                
                 return [
                     'booking_id' => $booking->booking_id,
                     'booking_code' => $booking->booking_code,
                     'booking_type' => $booking->booking_type,
-                    'seats_reserved' => (int) $booking->seats_reserved,
+                    'seats_reserved' => (int) ($booking->seats_reserved ?? 0),
                     'payment_method' => $booking->payment_method,
-                    'total_amount' => (float) $booking->total_amount,
+                    'total_amount' => (float) ($booking->total_amount ?? 0),
                     'status' => [
                         'key' => $booking->status?->status_key,
                         'name' => $booking->status?->status_name,
@@ -163,15 +174,15 @@ class AdminBookingManagementService
                     'pickup_point' => [
                         'address' => $booking->pickupPoint?->address,
                         'point_name' => $booking->pickupPoint?->point_name,
-                        'meeting_time' => optional($booking->pickupPoint?->meeting_time)->toIso8601String(),
+                        'meeting_time' => $booking->pickupPoint?->meeting_time?->toIso8601String(),
                         'governorate' => $booking->pickupPoint?->governorate?->name,
                     ],
                     'payment' => [
                         'method' => $payment?->payment_method ?? $booking->payment_method,
                         'status' => $payment?->payment_status,
-                        'amount' => $payment?->amount !== null ? (float) $payment->amount : (float) $booking->total_amount,
+                        'amount' => $payment?->amount !== null ? (float) $payment->amount : (float) ($booking->total_amount ?? 0),
                     ],
-                    'created_at' => optional($booking->created_at)->toIso8601String(),
+                    'created_at' => $booking->created_at?->toIso8601String(),
                 ];
             })->values(),
         ];
@@ -185,7 +196,7 @@ class AdminBookingManagementService
             'payment_method' => trim((string) ($filters['payment_method'] ?? '')),
             'from_date' => trim((string) ($filters['from_date'] ?? '')),
             'to_date' => trim((string) ($filters['to_date'] ?? '')),
-            'trip_id' => isset($filters['trip_id']) && $filters['trip_id'] !== null ? (int) $filters['trip_id'] : null,
+            'trip_id' => isset($filters['trip_id']) && $filters['trip_id'] !== null && $filters['trip_id'] !== '' ? (int) $filters['trip_id'] : null,
             'per_page' => max(1, min(100, (int) ($filters['per_page'] ?? 15))),
         ];
     }
@@ -195,7 +206,6 @@ class AdminBookingManagementService
         if ($haystack === null || $needle === '') {
             return false;
         }
-
         return mb_stripos($haystack, $needle) !== false;
     }
 }
