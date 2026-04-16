@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
@@ -69,6 +70,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
         Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
+        Route::get('/bookings', [AdminBookingController::class, 'index']);
      //   Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
         
         
