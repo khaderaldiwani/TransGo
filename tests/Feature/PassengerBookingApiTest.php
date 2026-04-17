@@ -11,10 +11,12 @@ use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripPoint;
 use App\Models\TripStatus;
+use App\Models\Receipt;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
+use App\Models\WalletTransaction;
 use App\Services\GovernorateResolverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -376,6 +378,48 @@ class PassengerBookingApiTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_passenger_can_view_wallet_with_last_one_hundred_transaction_cards(): void
+    {
+        [$passenger, $admin] = $this->seedPassengerWalletTransactions();
+
+        Sanctum::actingAs($passenger);
+
+        $this->getJson('/api/v1/passenger/wallet')
+            ->assertOk()
+            ->assertJsonPath('data.wallet.current_balance', 25000)
+            ->assertJsonCount(100, 'data.wallet.recent_transactions')
+            ->assertJsonPath('data.wallet.recent_transactions.0.title', 'استرداد بعد إلغاء الحجز')
+            ->assertJsonPath('data.wallet.recent_transactions.0.formatted_amount', '+12,104')
+            ->assertJsonPath('data.wallet.recent_transactions.0.status_label', 'مكتملة')
+            ->assertJsonPath('data.wallet.recent_transactions.0.actor_name', 'Wallet Admin')
+            ->assertJsonPath('data.wallet.recent_transactions.0.reason', 'استرداد للرحلة 105')
+            ->assertJsonPath('data.wallet.recent_transactions.0.details_endpoint', '/api/v1/passenger/wallet/transactions/105');
+    }
+
+    public function test_passenger_can_list_wallet_transactions_and_view_details(): void
+    {
+        [$passenger, $admin, $transaction, $receipt] = $this->seedPassengerWalletTransactions(true);
+
+        Sanctum::actingAs($passenger);
+
+        $this->getJson('/api/v1/passenger/wallet/transactions?search=Wallet Admin&per_page=10')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.title', 'استرداد بعد إلغاء الحجز')
+            ->assertJsonPath('data.data.0.formatted_amount', '+12,104')
+            ->assertJsonPath('data.data.0.actor_name', $admin->full_name)
+            ->assertJsonPath('data.data.0.details_endpoint', '/api/v1/passenger/wallet/transactions/105')
+            ->assertJsonPath('data.total', 105);
+
+        $this->getJson('/api/v1/passenger/wallet/transactions/'.$transaction->transaction_id)
+            ->assertOk()
+            ->assertJsonPath('data.card.transaction_id', $transaction->transaction_id)
+            ->assertJsonPath('data.card.actor_name', $admin->full_name)
+            ->assertJsonPath('data.card.details_endpoint', '/api/v1/passenger/wallet/transactions/'.$transaction->transaction_id)
+            ->assertJsonPath('data.details.receipt_number', $receipt->receipt_number)
+            ->assertJsonPath('data.details.amount', 12104)
+            ->assertJsonPath('data.details.trip.trip_id', $receipt->trip->trip_id);
+    }
+
     private function seedTripStatuses(): array
     {
         return [
@@ -631,5 +675,86 @@ class PassengerBookingApiTest extends TestCase
         };
 
         $this->app->instance(GovernorateResolverService::class, $resolver);
+    }
+
+    private function seedPassengerWalletTransactions(bool $withTripDetails = false): array
+    {
+        $passenger = $this->createPassenger(
+            $withTripDetails ? 'wallet-passenger-details@example.com' : 'wallet-passenger@example.com',
+            $withTripDetails ? '0980000098' : '0980000097',
+            25000
+        );
+
+        $adminRole = Role::firstOrCreate(['name' => Role::ROLE_ADMIN]);
+        $admin = User::create([
+            'full_name' => 'Wallet Admin',
+            'phone' => $withTripDetails ? '0999999996' : '0999999997',
+            'email' => $withTripDetails ? 'wallet-admin-passenger-details@example.com' : 'wallet-admin-passenger@example.com',
+            'password' => bcrypt('password'),
+            'account_status' => User::STATUS_ACTIVE,
+            'registration_type' => User::REGISTRATION_ADMIN,
+        ]);
+        $admin->roles()->attach($adminRole->id);
+
+        $wallet = $passenger->wallet()->first();
+        $wallet->update(['balance' => 25000]);
+
+        $trip = null;
+
+        if ($withTripDetails) {
+            [$pendingStatus] = $this->seedTripStatuses();
+            [$damascus, $homs] = $this->createGovernorates();
+            $driver = $this->createDriver();
+            $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHour());
+        }
+
+        $lastTransaction = null;
+        $lastReceipt = null;
+
+        for ($i = 0; $i < 105; $i++) {
+            $transaction = WalletTransaction::create([
+                'wallet_id' => $wallet->wallet_id,
+                'amount' => 12000 + $i,
+                'transaction_type' => 'refund',
+                'status' => 'completed',
+                'transaction_reference' => 'PSG-WALLET-'.$i,
+                'description' => 'استرداد للرحلة '.($i + 1),
+                'balance_before' => 1000,
+                'balance_after' => 2000,
+                'performed_by' => $admin->user_id,
+                'created_at' => now()->subMinutes($i),
+                'updated_at' => now()->subMinutes($i),
+            ]);
+
+            $receipt = Receipt::create([
+                'receipt_number' => 'RCT-PSG-'.$i,
+                'owner_user_id' => $passenger->user_id,
+                'wallet_id' => $wallet->wallet_id,
+                'related_wallet_transaction_id' => $transaction->transaction_id,
+                'related_trip_id' => $trip?->trip_id,
+                'receipt_type' => 'booking_refund',
+                'direction' => 'credit',
+                'status' => 'paid',
+                'amount' => 12000 + $i,
+                'counterparty_user_id' => $admin->user_id,
+                'counterparty_name' => $admin->full_name,
+                'reason' => 'استرداد للرحلة '.($i + 1),
+                'created_at' => now()->subMinutes($i),
+                'updated_at' => now()->subMinutes($i),
+            ]);
+
+            $transaction->update([
+                'related_receipt_id' => $receipt->receipt_id,
+            ]);
+
+            $lastTransaction = $transaction->fresh();
+            $lastReceipt = $receipt->fresh(['trip']);
+        }
+
+        if ($withTripDetails) {
+            return [$passenger, $admin, $lastTransaction, $lastReceipt];
+        }
+
+        return [$passenger, $admin];
     }
 }

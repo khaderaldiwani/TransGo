@@ -17,9 +17,11 @@ use App\Http\Controllers\Api\V1\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
+use App\Http\Controllers\Api\V1\Driver\WalletController as DriverWalletController;
 use App\Http\Controllers\Api\V1\Passenger\BookingController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
+use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
@@ -94,9 +96,16 @@ Route::prefix('v1/passenger')->group(function () {
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
+       //receipts
         Route::get('/receipts', [PassengerReceiptController::class, 'index']);
         Route::get('/receipts/{id}', [PassengerReceiptController::class, 'show'])->whereNumber('id');
-    });
+    
+        //wallet
+        Route::get('/wallet', [PassengerWalletController::class, 'show']);
+        Route::get('/wallet/transactions', [PassengerWalletController::class, 'transactions']);
+        Route::get('/wallet/transactions/{id}', [PassengerWalletController::class, 'showTransaction'])->whereNumber('id');
+    
+        });
     
 });
 Route::prefix('v1/driver')->group(function () {
@@ -123,8 +132,13 @@ Route::prefix('v1/driver')->group(function () {
         Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
         Route::get('/trips/{id}/bookings', [TripController::class, 'tripBookings'])->whereNumber('id');
         Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
+        //receipts
         Route::get('/receipts', [DriverReceiptController::class, 'index']);
         Route::get('/receipts/{id}', [DriverReceiptController::class, 'show'])->whereNumber('id');
+        //wallet
+        Route::get('/wallet', [DriverWalletController::class, 'show']);
+        Route::get('/wallet/transactions', [DriverWalletController::class, 'transactions']);
+        Route::get('/wallet/transactions/{id}', [DriverWalletController::class, 'showTransaction'])->whereNumber('id');
         
     });
     

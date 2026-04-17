@@ -10,6 +10,7 @@ use App\Models\DriverProfile;
 use App\Models\Governorate;
 use App\Models\Notification;
 use App\Models\Payment;
+use App\Models\Receipt;
 use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripPoint;
@@ -19,6 +20,7 @@ use App\Models\UserNotification;
 use App\Models\Vehicle;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
+use App\Models\WalletTransaction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -367,6 +369,179 @@ class DriverTripApiTest extends TestCase
         $this->postJson('/api/v1/driver/trips/'.$completedTrip->trip_id.'/cancel', [
             'reason' => 'يجب أن يفشل',
         ])->assertStatus(422);
+    }
+
+    public function test_driver_can_view_wallet_with_last_one_hundred_transaction_cards(): void
+    {
+        $driver = $this->createDriverUser();
+        $adminRole = Role::firstOrCreate(['name' => Role::ROLE_ADMIN]);
+        $admin = User::create([
+            'full_name' => 'Wallet Admin',
+            'phone' => '0999999998',
+            'email' => 'wallet-admin@example.com',
+            'password' => bcrypt('password'),
+            'account_status' => User::STATUS_ACTIVE,
+            'registration_type' => User::REGISTRATION_ADMIN,
+        ]);
+        $admin->roles()->attach($adminRole->id);
+
+        $wallet = $driver->wallet()->first();
+        $wallet->update(['balance' => 25000]);
+
+        for ($i = 0; $i < 105; $i++) {
+            $transaction = WalletTransaction::create([
+                'wallet_id' => $wallet->wallet_id,
+                'amount' => 12000 + $i,
+                'transaction_type' => $i % 2 === 0 ? 'credit' : 'adjustment',
+                'status' => 'completed',
+                'transaction_reference' => 'DRV-WALLET-'.$i,
+                'description' => 'حجز إلكتروني للرحلة '.($i + 1),
+                'balance_before' => 1000,
+                'balance_after' => 2000,
+                'performed_by' => $admin->user_id,
+                'created_at' => now()->subMinutes($i),
+                'updated_at' => now()->subMinutes($i),
+            ]);
+
+            $receipt = Receipt::create([
+                'receipt_number' => 'RCT-DRV-'.$i,
+                'owner_user_id' => $driver->user_id,
+                'wallet_id' => $wallet->wallet_id,
+                'related_wallet_transaction_id' => $transaction->transaction_id,
+                'receipt_type' => $i % 2 === 0 ? 'booking_income' : 'trip_cancellation_reversal',
+                'direction' => $i % 2 === 0 ? 'credit' : 'debit',
+                'status' => 'paid',
+                'amount' => 12000 + $i,
+                'counterparty_user_id' => $admin->user_id,
+                'counterparty_name' => $admin->full_name,
+                'reason' => 'حجز إلكتروني للرحلة '.($i + 1),
+                'created_at' => now()->subMinutes($i),
+                'updated_at' => now()->subMinutes($i),
+            ]);
+
+            $transaction->update([
+                'related_receipt_id' => $receipt->receipt_id,
+            ]);
+        }
+
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/driver/wallet')
+            ->assertOk()
+            ->assertJsonPath('data.wallet.current_balance', 25000)
+            ->assertJsonCount(100, 'data.wallet.recent_transactions')
+            ->assertJsonPath('data.wallet.recent_transactions.0.title', 'دخل حجز إلكتروني')
+            ->assertJsonPath('data.wallet.recent_transactions.0.formatted_amount', '+12,104')
+            ->assertJsonPath('data.wallet.recent_transactions.0.status_label', 'مكتملة')
+            ->assertJsonPath('data.wallet.recent_transactions.0.actor_name', 'Wallet Admin')
+            ->assertJsonPath('data.wallet.recent_transactions.0.reason', 'حجز إلكتروني للرحلة 105')
+            ->assertJsonPath('data.wallet.recent_transactions.0.details_endpoint', '/api/v1/driver/wallet/transactions/105');
+    }
+
+    public function test_driver_can_list_all_wallet_transactions_as_cards(): void
+    {
+        [$driver, $admin] = $this->seedDriverWalletTransactions();
+
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/driver/wallet/transactions?search=Wallet Admin&per_page=10')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.title', 'دخل حجز إلكتروني')
+            ->assertJsonPath('data.data.0.formatted_amount', '+12,004')
+            ->assertJsonPath('data.data.0.actor_name', $admin->full_name)
+            ->assertJsonPath('data.data.0.details_endpoint', '/api/v1/driver/wallet/transactions/5')
+            ->assertJsonPath('data.total', 5);
+    }
+
+    public function test_driver_can_view_wallet_transaction_details(): void
+    {
+        [$driver, $admin, $transaction, $receipt] = $this->seedDriverWalletTransactions(true);
+
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/driver/wallet/transactions/'.$transaction->transaction_id)
+            ->assertOk()
+            ->assertJsonPath('data.card.transaction_id', $transaction->transaction_id)
+            ->assertJsonPath('data.card.actor_name', $admin->full_name)
+            ->assertJsonPath('data.card.details_endpoint', '/api/v1/driver/wallet/transactions/'.$transaction->transaction_id)
+            ->assertJsonPath('data.details.receipt_number', $receipt->receipt_number)
+            ->assertJsonPath('data.details.amount', 12004)
+            ->assertJsonPath('data.details.trip.trip_id', $receipt->trip->trip_id);
+    }
+
+    private function seedDriverWalletTransactions(bool $withTripDetails = false): array
+    {
+        $driver = $this->createDriverUser();
+        $adminRole = Role::firstOrCreate(['name' => Role::ROLE_ADMIN]);
+        $admin = User::create([
+            'full_name' => 'Wallet Admin',
+            'phone' => '0999999998',
+            'email' => $withTripDetails ? 'wallet-admin-details@example.com' : 'wallet-admin-list@example.com',
+            'password' => bcrypt('password'),
+            'account_status' => User::STATUS_ACTIVE,
+            'registration_type' => User::REGISTRATION_ADMIN,
+        ]);
+        $admin->roles()->attach($adminRole->id);
+
+        $wallet = $driver->wallet()->first();
+        $wallet->update(['balance' => 25000]);
+
+        $trip = null;
+
+        if ($withTripDetails) {
+            [$pending] = $this->seedTripStatuses();
+            [$damascus, $homs] = $this->createGovernorates();
+            $trip = $this->createTrip($driver, $pending->status_id, now()->addHour(), $damascus, $homs);
+        }
+
+        $lastTransaction = null;
+        $lastReceipt = null;
+
+        for ($i = 0; $i < 5; $i++) {
+            $transaction = WalletTransaction::create([
+                'wallet_id' => $wallet->wallet_id,
+                'amount' => 12000 + $i,
+                'transaction_type' => 'credit',
+                'status' => 'completed',
+                'transaction_reference' => 'DRV-WALLET-'.$i,
+                'description' => 'حجز إلكتروني للرحلة '.($i + 1),
+                'balance_before' => 1000,
+                'balance_after' => 2000,
+                'performed_by' => $admin->user_id,
+                'created_at' => now()->subMinutes(4 - $i),
+                'updated_at' => now()->subMinutes(4 - $i),
+            ]);
+
+            $receipt = Receipt::create([
+                'receipt_number' => 'RCT-DRV-'.$i,
+                'owner_user_id' => $driver->user_id,
+                'wallet_id' => $wallet->wallet_id,
+                'related_wallet_transaction_id' => $transaction->transaction_id,
+                'related_trip_id' => $trip?->trip_id,
+                'receipt_type' => 'booking_income',
+                'direction' => 'credit',
+                'status' => 'paid',
+                'amount' => 12000 + $i,
+                'counterparty_user_id' => $admin->user_id,
+                'counterparty_name' => $admin->full_name,
+                'reason' => 'حجز إلكتروني للرحلة '.($i + 1),
+                'created_at' => now()->subMinutes(4 - $i),
+                'updated_at' => now()->subMinutes(4 - $i),
+            ]);
+
+            $transaction->update([
+                'related_receipt_id' => $receipt->receipt_id,
+            ]);
+
+            $lastTransaction = $transaction->fresh();
+            $lastReceipt = $receipt->fresh(['trip']);
+        }
+
+        if ($withTripDetails) {
+            return [$driver, $admin, $lastTransaction, $lastReceipt];
+        }
+
+        return [$driver, $admin];
     }
 
     private function createDriverUser(): User
