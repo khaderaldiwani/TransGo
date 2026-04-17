@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Events\BookingCreated;
+use App\Models\AccountRestriction;
 use App\Models\Booking;
+use App\Models\BookingCancellation;
 use App\Models\BookingStatus;
+use App\Models\BookingStatusLog;
 use App\Models\Notification;
 use App\Models\Payment;
 use App\Models\Role;
@@ -15,6 +18,7 @@ use App\Models\UserNotification;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -25,6 +29,13 @@ class BookingService
 {
     private const MAX_BOOKINGS_PER_DAY = 6;
     private const MAX_PICKUP_DISTANCE_METERS = 300.0;
+    private const FREE_CANCELLATION_GRACE_MINUTES = 30;
+    private const EARLY_CANCELLATION_THRESHOLD_HOURS = 12.0;
+    private const MID_CANCELLATION_THRESHOLD_HOURS = 6.0;
+    private const LATE_CANCELLATION_THRESHOLD_HOURS = 2.0;
+    private const EARLY_CANCELLATION_MONTHLY_LIMIT = 6;
+    private const EARLY_CANCELLATION_RATING_THRESHOLD = 3;
+    private const TEMP_BAN_DAYS = 3;
 
     public function __construct(
         private readonly GovernorateResolverService $governorateResolverService
@@ -47,6 +58,7 @@ class BookingService
             $trip->load(['points', 'driver.user', 'status', 'bookings.status']);
 
             $this->ensureTripIsBookable($trip);
+            $this->ensurePassengerCanBook($actor, (string) $data['payment_method']);
             $this->ensureDailyBookingLimit($actor);
 
             $bookingType = (string) $data['booking_type'];
@@ -117,6 +129,129 @@ class BookingService
         });
     }
 
+    public function cancelBooking(int $bookingId, User $actor, ?string $reason = null): array
+    {
+        return DB::transaction(function () use ($bookingId, $actor, $reason) {
+            $booking = Booking::query()
+                ->with(['trip.status', 'trip.driver.user', 'status', 'pickupPoint', 'passenger', 'payments'])
+                ->lockForUpdate()
+                ->find($bookingId);
+
+            if (! $booking || (int) $booking->passenger_id !== (int) $actor->user_id) {
+                throw ValidationException::withMessages([
+                    'booking_id' => 'الحجز المطلوب غير موجود.',
+                ]);
+            }
+
+            $trip = Trip::query()
+                ->with(['status', 'bookings.status'])
+                ->lockForUpdate()
+                ->find($booking->trip_id);
+
+            if (! $trip) {
+                throw ValidationException::withMessages([
+                    'trip_id' => 'الرحلة المرتبطة بالحجز غير موجودة.',
+                ]);
+            }
+
+            $this->ensureBookingIsCancelable($booking, $trip);
+
+            $canceledStatus = $this->resolveBookingStatus('canceled');
+            $currentStatusId = $booking->status_id;
+            $penalty = $this->resolveCancellationPenalty($booking, $trip);
+            $payment = Payment::query()
+                ->where('booking_id', $booking->booking_id)
+                ->lockForUpdate()
+                ->first();
+
+            $wallet = $booking->payment_method === 'electronic'
+                ? Wallet::query()->where('user_id', $actor->user_id)->lockForUpdate()->first()
+                : null;
+
+            if ($penalty['wallet_refund_amount'] > 0) {
+                $this->refundWallet(
+                    $wallet,
+                    $booking,
+                    $payment,
+                    $actor,
+                    (float) $penalty['wallet_refund_amount']
+                );
+            }
+
+            $booking->update([
+                'status_id' => $canceledStatus->status_id,
+                'canceled_at' => now(),
+            ]);
+
+            BookingStatusLog::create([
+                'booking_id' => $booking->booking_id,
+                'from_status_id' => $currentStatusId,
+                'to_status_id' => $canceledStatus->status_id,
+                'changed_by' => $actor->user_id,
+                'reason' => $reason,
+                'changed_at' => now(),
+            ]);
+
+            BookingCancellation::updateOrCreate(
+                ['booking_id' => $booking->booking_id],
+                [
+                    'canceled_by' => $actor->user_id,
+                    'reason' => $reason,
+                    'cancellation_time' => now(),
+                    'hours_before_departure' => $penalty['hours_before_departure'],
+                    'penalty_percentage' => $penalty['penalty_percentage'],
+                    'penalty_amount' => $penalty['penalty_amount'],
+                    'wallet_refund_amount' => $penalty['wallet_refund_amount'],
+                    'rating_penalty' => $penalty['rating_penalty'],
+                ]
+            );
+
+            if ($payment) {
+                $this->syncPaymentAfterCancellation($payment, $penalty);
+            }
+
+            $this->restoreTripCapacityAfterCancellation($trip, $booking);
+            $restriction = $this->applyRestrictionsAfterCancellation($actor, $penalty, $booking);
+
+            if ($penalty['rating_penalty'] > 0) {
+                $this->applyPassengerRatingPenalty(
+                    $actor,
+                    $booking,
+                    (float) $penalty['rating_penalty'],
+                    (string) $penalty['rating_reason']
+                );
+            }
+
+            $booking->load(['trip.status', 'pickupPoint', 'status', 'payments']);
+
+            $this->notifyPassengerBookingCanceled($booking, $actor, $penalty, $restriction);
+            $this->notifyDriverBookingCanceled($booking, $actor);
+
+            return [
+                'booking_id' => $booking->booking_id,
+                'booking_code' => $booking->booking_code,
+                'status' => [
+                    'id' => $canceledStatus->status_id,
+                    'key' => $canceledStatus->status_key,
+                    'name' => $canceledStatus->status_name,
+                ],
+                'penalty' => [
+                    'grace_period_applied' => $penalty['grace_period_applied'],
+                    'hours_before_departure' => $penalty['hours_before_departure'],
+                    'percentage' => $penalty['penalty_percentage'],
+                    'amount' => $penalty['penalty_amount'],
+                    'wallet_refund_amount' => $penalty['wallet_refund_amount'],
+                    'rating_penalty' => $penalty['rating_penalty'],
+                ],
+                'restriction' => $restriction,
+                'trip' => [
+                    'trip_id' => $trip->trip_id,
+                    'available_seats' => (int) $trip->fresh()->available_seats,
+                ],
+            ];
+        });
+    }
+
     private function ensureTripIsBookable(Trip $trip): void
     {
         $statusKey = $trip->status?->status_key;
@@ -136,6 +271,23 @@ class BookingService
         if ($trip->is_private_booked) {
             throw ValidationException::withMessages([
                 'trip_id' => 'هذه الرحلة محجوزة كرحلة خاصة بالفعل.',
+            ]);
+        }
+    }
+
+    private function ensurePassengerCanBook(User $actor, string $paymentMethod): void
+    {
+        $restrictions = $this->resolveActiveRestrictions($actor);
+
+        if ($restrictions->firstWhere('restriction_type', 'temporary_ban')) {
+            throw ValidationException::withMessages([
+                'booking_restriction' => 'الحساب مقيد مؤقتاً ولا يمكن تنفيذ حجوزات جديدة حالياً.',
+            ]);
+        }
+
+        if ($paymentMethod === 'cash' && $restrictions->firstWhere('restriction_type', 'cash_block')) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'هذا الحساب يمكنه الحجز حالياً عبر الدفع الإلكتروني فقط.',
             ]);
         }
     }
@@ -435,7 +587,7 @@ class BookingService
 
         if ((float) $wallet->balance < $totalAmount) {
             throw ValidationException::withMessages([
-                'payment_method' => 'الرصيد غير كافي للحجز يرجى شحن المحفظة.',
+                'payment_method' => 'الرصيد غير كاف للحجز يرجى شحن المحفظة.',
             ]);
         }
     }
@@ -455,6 +607,31 @@ class BookingService
             'status' => 'completed',
             'transaction_reference' => $payment->transaction_reference,
             'description' => 'خصم قيمة الحجز من المحفظة الإلكترونية.',
+            'balance_before' => $beforeBalance,
+            'balance_after' => $afterBalance,
+            'performed_by' => $actor->user_id,
+        ]);
+    }
+
+    private function refundWallet(?Wallet $wallet, Booking $booking, ?Payment $payment, User $actor, float $refundAmount): void
+    {
+        if (! $wallet) {
+            throw new RuntimeException('تعذر تنفيذ الاسترداد لأن المحفظة غير متوفرة.');
+        }
+
+        $beforeBalance = (float) $wallet->balance;
+        $afterBalance = round($beforeBalance + $refundAmount, 2);
+
+        $wallet->update(['balance' => $afterBalance]);
+
+        WalletTransaction::create([
+            'wallet_id' => $wallet->wallet_id,
+            'related_booking_id' => $booking->booking_id,
+            'amount' => $refundAmount,
+            'transaction_type' => 'refund',
+            'status' => 'completed',
+            'transaction_reference' => $payment?->transaction_reference ?? Str::uuid()->toString(),
+            'description' => 'استرداد مبلغ من الحجز الملغى إلى المحفظة الإلكترونية.',
             'balance_before' => $beforeBalance,
             'balance_after' => $afterBalance,
             'performed_by' => $actor->user_id,
@@ -481,6 +658,309 @@ class BookingService
         ]);
     }
 
+    private function ensureBookingIsCancelable(Booking $booking, Trip $trip): void
+    {
+        $statusKey = $booking->status?->status_key;
+
+        if (in_array($statusKey, ['canceled', 'rejected', 'completed'], true)) {
+            throw ValidationException::withMessages([
+                'booking_id' => 'لا يمكن إلغاء هذا الحجز بحالته الحالية.',
+            ]);
+        }
+
+        if (in_array($trip->status?->status_key, [TripStatus::CANCELED, TripStatus::COMPLETED], true)) {
+            throw ValidationException::withMessages([
+                'trip_id' => 'لا يمكن إلغاء الحجز لأن الرحلة أصبحت منتهية أو ملغاة.',
+            ]);
+        }
+    }
+
+    private function resolveCancellationPenalty(Booking $booking, Trip $trip): array
+    {
+        $departureTime = Carbon::parse($trip->departure_time);
+        $hoursBeforeDeparture = round(max(0, ($departureTime->getTimestamp() - now()->getTimestamp()) / 3600), 2);
+        $minutesSinceBooking = $booking->created_at
+            ? (int) $booking->created_at->diffInMinutes(now())
+            : self::FREE_CANCELLATION_GRACE_MINUTES;
+
+        if ($minutesSinceBooking < self::FREE_CANCELLATION_GRACE_MINUTES) {
+            return $this->buildGraceCancellationPenalty($booking, $hoursBeforeDeparture);
+        }
+
+        $monthlyEarlyCancellations = $this->countMonthlyEarlyCancellations((int) $booking->passenger_id) + 1;
+        $ratingPenalty = 0.0;
+        $ratingReason = null;
+        $restrictionType = null;
+        $restrictionReason = null;
+        $penaltyPercentage = 0.0;
+
+        if ($hoursBeforeDeparture >= self::EARLY_CANCELLATION_THRESHOLD_HOURS) {
+            if ($monthlyEarlyCancellations > self::EARLY_CANCELLATION_RATING_THRESHOLD) {
+                $ratingPenalty = 0.10;
+                $ratingReason = 'خصم تقييم بسبب تكرار إلغاء الحجز المبكر.';
+            }
+
+            if ($monthlyEarlyCancellations > self::EARLY_CANCELLATION_MONTHLY_LIMIT) {
+                $restrictionType = 'temporary_ban';
+                $restrictionReason = 'تكرار إلغاء الحجوزات قبل 12 ساعة أو أكثر أكثر من 6 مرات خلال الشهر.';
+            }
+        } elseif ($hoursBeforeDeparture < self::MID_CANCELLATION_THRESHOLD_HOURS) {
+            $ratingPenalty = 0.30;
+            $ratingReason = 'خصم تقييم بسبب إلغاء الحجز قبل أقل من 6 ساعات من الانطلاق.';
+
+            if ($booking->payment_method === 'electronic') {
+                $penaltyPercentage = $hoursBeforeDeparture < self::LATE_CANCELLATION_THRESHOLD_HOURS ? 100.0 : 50.0;
+            } else {
+                $restrictionType = 'cash_block';
+                $restrictionReason = 'تم تقييد الدفع النقدي بسبب إلغاء حجز نقدي قبل أقل من 12 ساعة من الانطلاق.';
+            }
+        } else {
+            $ratingPenalty = 0.20;
+            $ratingReason = 'خصم تقييم بسبب إلغاء الحجز قبل أقل من 12 ساعة من الانطلاق.';
+
+            if ($booking->payment_method === 'electronic') {
+                $penaltyPercentage = 25.0;
+            } else {
+                $restrictionType = 'cash_block';
+                $restrictionReason = 'تم تقييد الدفع النقدي بسبب إلغاء حجز نقدي قبل أقل من 12 ساعة من الانطلاق.';
+            }
+        }
+
+        $totalAmount = (float) $booking->total_amount;
+        $penaltyAmount = round(($totalAmount * $penaltyPercentage) / 100, 2);
+        $refundAmount = $booking->payment_method === 'electronic'
+            ? round(max(0, $totalAmount - $penaltyAmount), 2)
+            : 0.0;
+
+        return [
+            'grace_period_applied' => false,
+            'hours_before_departure' => $hoursBeforeDeparture,
+            'penalty_percentage' => $penaltyPercentage,
+            'penalty_amount' => $penaltyAmount,
+            'wallet_refund_amount' => $refundAmount,
+            'rating_penalty' => $ratingPenalty,
+            'rating_reason' => $ratingReason,
+            'restriction_type' => $restrictionType,
+            'restriction_reason' => $restrictionReason,
+        ];
+    }
+
+    private function buildGraceCancellationPenalty(Booking $booking, float $hoursBeforeDeparture): array
+    {
+        return [
+            'grace_period_applied' => true,
+            'hours_before_departure' => $hoursBeforeDeparture,
+            'penalty_percentage' => 0.0,
+            'penalty_amount' => 0.0,
+            'wallet_refund_amount' => $booking->payment_method === 'electronic'
+                ? round((float) $booking->total_amount, 2)
+                : 0.0,
+            'rating_penalty' => 0.0,
+            'rating_reason' => null,
+            'restriction_type' => null,
+            'restriction_reason' => null,
+        ];
+    }
+
+    private function countMonthlyEarlyCancellations(int $userId): int
+    {
+        return BookingCancellation::query()
+            ->where('canceled_by', $userId)
+            ->whereYear('cancellation_time', now()->year)
+            ->whereMonth('cancellation_time', now()->month)
+            ->where('hours_before_departure', '>=', self::EARLY_CANCELLATION_THRESHOLD_HOURS)
+            ->count();
+    }
+
+    private function restoreTripCapacityAfterCancellation(Trip $trip, Booking $booking): void
+    {
+        $remainingActiveBookings = Booking::query()
+            ->with('status')
+            ->where('trip_id', $trip->trip_id)
+            ->where('booking_id', '!=', $booking->booking_id)
+            ->get()
+            ->filter(fn (Booking $tripBooking) => ! in_array($tripBooking->status?->status_key, ['canceled', 'rejected'], true));
+
+        $seatsToRestore = (int) $booking->seats_reserved;
+        $availableSeats = min((int) $trip->total_seats, (int) $trip->available_seats + $seatsToRestore);
+
+        $hasSharedBookings = $remainingActiveBookings->contains(fn (Booking $tripBooking) => $tripBooking->booking_type === 'shared');
+        $hasPrivateBookings = $remainingActiveBookings->contains(fn (Booking $tripBooking) => $tripBooking->booking_type === 'private');
+
+        if ($hasPrivateBookings) {
+            $trip->update([
+                'available_seats' => 0,
+                'is_private_booked' => true,
+                'allow_shared' => false,
+                'allow_private' => true,
+            ]);
+
+            return;
+        }
+
+        if ($hasSharedBookings) {
+            $trip->update([
+                'available_seats' => $availableSeats,
+                'is_private_booked' => false,
+                'allow_shared' => true,
+                'allow_private' => false,
+            ]);
+
+            return;
+        }
+
+        $trip->update([
+            'available_seats' => (int) $trip->total_seats,
+            'is_private_booked' => false,
+            'allow_shared' => $trip->shared_price !== null,
+            'allow_private' => $trip->private_price !== null,
+        ]);
+    }
+
+    private function applyRestrictionsAfterCancellation(User $actor, array $penalty, Booking $booking): ?array
+    {
+        if (! $penalty['restriction_type']) {
+            return null;
+        }
+
+        $restriction = match ($penalty['restriction_type']) {
+            'temporary_ban' => $this->createOrRefreshTemporaryBan($actor, (string) $penalty['restriction_reason']),
+            'cash_block' => $this->createCashOnlyRestriction($actor, (string) $penalty['restriction_reason']),
+            default => null,
+        };
+
+        if (! $restriction) {
+            return null;
+        }
+
+        $this->notifyPassengerRestrictionApplied($booking, $actor, $restriction);
+
+        return [
+            'type' => $restriction->restriction_type,
+            'reason' => $restriction->reason,
+            'start_date' => optional($restriction->start_date)->toIso8601String(),
+            'end_date' => optional($restriction->end_date)->toIso8601String(),
+        ];
+    }
+
+    private function createOrRefreshTemporaryBan(User $actor, string $reason): AccountRestriction
+    {
+        $activeBan = AccountRestriction::query()
+            ->where('user_id', $actor->user_id)
+            ->where('restriction_type', 'temporary_ban')
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>', now());
+            })
+            ->first();
+
+        $endDate = now()->addDays(self::TEMP_BAN_DAYS);
+
+        if ($activeBan) {
+            $activeBan->update([
+                'start_date' => now(),
+                'end_date' => $endDate,
+                'reason' => $reason,
+                'is_active' => true,
+            ]);
+
+            return $activeBan->fresh();
+        }
+
+        return AccountRestriction::create([
+            'user_id' => $actor->user_id,
+            'restriction_type' => 'temporary_ban',
+            'start_date' => now(),
+            'end_date' => $endDate,
+            'reason' => $reason,
+            'is_active' => true,
+        ]);
+    }
+
+    private function createCashOnlyRestriction(User $actor, string $reason): AccountRestriction
+    {
+        $activeRestriction = AccountRestriction::query()
+            ->where('user_id', $actor->user_id)
+            ->where('restriction_type', 'cash_block')
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>', now());
+            })
+            ->first();
+
+        if ($activeRestriction) {
+            return $activeRestriction;
+        }
+
+        return AccountRestriction::create([
+            'user_id' => $actor->user_id,
+            'restriction_type' => 'cash_block',
+            'start_date' => now(),
+            'end_date' => null,
+            'reason' => $reason,
+            'is_active' => true,
+        ]);
+    }
+
+    private function applyPassengerRatingPenalty(User $actor, Booking $booking, float $penaltyAmount, string $reason): void
+    {
+        $currentRating = (float) ($actor->rating ?? User::DEFAULT_RATING);
+        $newRating = max(User::MIN_RATING, round($currentRating - $penaltyAmount, 2));
+
+        $actor->update([
+            'rating' => $newRating,
+            'rating_last_updated' => now(),
+        ]);
+
+        DB::table('passenger_rating_logs')->insert([
+            'user_id' => $actor->user_id,
+            'booking_id' => $booking->booking_id,
+            'rating_change' => -1 * abs($penaltyAmount),
+            'reason' => $reason,
+            'created_at' => now(),
+        ]);
+    }
+
+    private function syncPaymentAfterCancellation(Payment $payment, array $penalty): void
+    {
+        if ($payment->payment_method !== 'electronic') {
+            $payment->update([
+                'payment_status' => 'canceled',
+                'failure_reason' => 'تم إلغاء الحجز قبل الدفع النقدي.',
+            ]);
+
+            return;
+        }
+
+        $refundAmount = (float) $penalty['wallet_refund_amount'];
+        $totalAmount = (float) $payment->amount;
+
+        if ($refundAmount >= $totalAmount) {
+            $payment->update([
+                'payment_status' => 'refunded',
+                'failure_reason' => 'تم رد كامل المبلغ بعد إلغاء الحجز.',
+            ]);
+
+            return;
+        }
+
+        if ($refundAmount > 0) {
+            $payment->update([
+                'payment_status' => 'partially_refunded',
+                'failure_reason' => 'تم رد جزء من المبلغ بعد تطبيق غرامة الإلغاء.',
+            ]);
+
+            return;
+        }
+
+        $payment->update([
+            'payment_status' => 'paid',
+            'failure_reason' => 'تم إلغاء الحجز بدون استرداد بسبب غرامة الإلغاء الكاملة.',
+        ]);
+    }
+
     private function notifyPassengerBookingConfirmed(Booking $booking, User $actor, float $totalAmount): void
     {
         $notification = Notification::create([
@@ -494,17 +974,7 @@ class BookingService
             'target_governorate_id' => $booking->pickupPoint?->governorate_id,
         ]);
 
-        UserNotification::firstOrCreate(
-            [
-                'notification_id' => $notification->notification_id,
-                'user_id' => $actor->user_id,
-            ],
-            [
-                'is_read' => false,
-                'is_sent' => true,
-                'sent_at' => now(),
-            ]
-        );
+        $this->sendNotificationToUser($notification, $actor->user_id);
     }
 
     private function notifyPassengerWalletDebit(Booking $booking, User $actor, float $totalAmount): void
@@ -520,10 +990,81 @@ class BookingService
             'target_governorate_id' => $booking->pickupPoint?->governorate_id,
         ]);
 
+        $this->sendNotificationToUser($notification, $actor->user_id);
+    }
+
+    private function notifyPassengerBookingCanceled(
+        Booking $booking,
+        User $actor,
+        array $penalty,
+        ?array $restriction
+    ): void {
+        $body = $penalty['grace_period_applied']
+            ? "تم إلغاء الحجز رقم {$booking->booking_code} ضمن مهلة السماح بدون أي عقوبة."
+            : "تم إلغاء الحجز رقم {$booking->booking_code}. قيمة الغرامة {$penalty['penalty_amount']} وقيمة الاسترداد {$penalty['wallet_refund_amount']}.";
+
+        if ($restriction) {
+            $body .= " تم تطبيق تقييد من النوع {$restriction['type']}.";
+        }
+
+        $notification = Notification::create([
+            'title' => 'تم إلغاء الحجز',
+            'body' => $body,
+            'notification_type' => 'booking_canceled_passenger',
+            'reference_type' => Booking::class,
+            'reference_id' => $booking->booking_id,
+            'created_by' => $actor->user_id,
+            'target_role' => Role::ROLE_PASSENGER,
+            'target_governorate_id' => $booking->pickupPoint?->governorate_id,
+        ]);
+
+        $this->sendNotificationToUser($notification, $actor->user_id);
+    }
+
+    private function notifyDriverBookingCanceled(Booking $booking, User $actor): void
+    {
+        $driverUserId = $booking->trip?->driver?->user?->user_id;
+
+        if (! $driverUserId) {
+            return;
+        }
+
+        $notification = Notification::create([
+            'title' => 'إلغاء حجز راكب',
+            'body' => "ألغى الراكب {$actor->full_name} الحجز رقم {$booking->booking_code}.",
+            'notification_type' => 'booking_canceled_driver',
+            'reference_type' => Booking::class,
+            'reference_id' => $booking->booking_id,
+            'created_by' => $actor->user_id,
+            'target_role' => Role::ROLE_DRIVER,
+            'target_governorate_id' => $booking->pickupPoint?->governorate_id,
+        ]);
+
+        $this->sendNotificationToUser($notification, $driverUserId);
+    }
+
+    private function notifyPassengerRestrictionApplied(Booking $booking, User $actor, AccountRestriction $restriction): void
+    {
+        $notification = Notification::create([
+            'title' => 'تم تطبيق تقييد على الحساب',
+            'body' => $restriction->reason ?? 'تم تطبيق تقييد جديد على حسابك.',
+            'notification_type' => 'passenger_restriction_applied',
+            'reference_type' => Booking::class,
+            'reference_id' => $booking->booking_id,
+            'created_by' => $actor->user_id,
+            'target_role' => Role::ROLE_PASSENGER,
+            'target_governorate_id' => $booking->pickupPoint?->governorate_id,
+        ]);
+
+        $this->sendNotificationToUser($notification, $actor->user_id);
+    }
+
+    private function sendNotificationToUser(Notification $notification, int $userId): void
+    {
         UserNotification::firstOrCreate(
             [
                 'notification_id' => $notification->notification_id,
-                'user_id' => $actor->user_id,
+                'user_id' => $userId,
             ],
             [
                 'is_read' => false,
@@ -545,6 +1086,25 @@ class BookingService
         }
 
         return $status;
+    }
+
+    private function resolveActiveRestrictions(User $actor): Collection
+    {
+        AccountRestriction::query()
+            ->where('user_id', $actor->user_id)
+            ->where('is_active', true)
+            ->whereNotNull('end_date')
+            ->where('end_date', '<=', now())
+            ->update(['is_active' => false]);
+
+        return AccountRestriction::query()
+            ->where('user_id', $actor->user_id)
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>', now());
+            })
+            ->get();
     }
 
     private function generateBookingCode(): string

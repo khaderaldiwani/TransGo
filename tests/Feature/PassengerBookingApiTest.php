@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Booking;
+use App\Models\BookingCancellation;
 use App\Models\BookingStatus;
 use App\Models\DriverProfile;
 use App\Models\Governorate;
@@ -15,6 +17,7 @@ use App\Models\VehicleImage;
 use App\Models\Wallet;
 use App\Services\GovernorateResolverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -156,6 +159,221 @@ class PassengerBookingApiTest extends TestCase
             'address' => 'عنوان محسوب تلقائياً',
             'is_new' => true,
         ]);
+    }
+
+    public function test_canceling_cash_booking_less_than_twelve_hours_blocks_cash_and_restores_capacity(): void
+    {
+        [$pendingStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('cancel-cash@example.com', '0980000010');
+        $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHours(5));
+        $anotherTrip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHours(8));
+
+        Sanctum::actingAs($passenger);
+
+        $bookingResponse = $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $trip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 2,
+            'payment_method' => 'cash',
+            'pickup_point' => [
+                'trip_point_id' => $trip->points()->first()->point_id,
+            ],
+        ])->assertCreated();
+
+        $bookingId = $bookingResponse->json('data.booking_id');
+
+        Booking::query()->whereKey($bookingId)->update([
+            'created_at' => now()->subMinutes(45),
+        ]);
+
+        $this->postJson("/api/v1/passenger/bookings/{$bookingId}/cancel", [
+            'reason' => 'تغيير الخطة',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.penalty.percentage', 0)
+            ->assertJsonPath('data.penalty.rating_penalty', 0.3)
+            ->assertJsonPath('data.restriction.type', 'cash_block')
+            ->assertJsonPath('data.trip.available_seats', 4);
+
+        $this->assertDatabaseHas('account_restrictions', [
+            'user_id' => $passenger->user_id,
+            'restriction_type' => 'cash_block',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $bookingId,
+            'status_id' => BookingStatus::where('status_key', 'canceled')->value('status_id'),
+        ]);
+
+        $this->assertSame('4.70', $passenger->fresh()->rating);
+
+        $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $anotherTrip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'cash',
+            'pickup_point' => [
+                'trip_point_id' => $anotherTrip->points()->first()->point_id,
+            ],
+        ])->assertStatus(422);
+    }
+
+    public function test_canceling_electronic_booking_within_five_hours_refunds_half_amount(): void
+    {
+        [$pendingStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('cancel-wallet@example.com', '0980000011', 50000);
+        $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHours(5));
+
+        Sanctum::actingAs($passenger);
+
+        $bookingResponse = $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $trip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'electronic',
+            'pickup_point' => [
+                'trip_point_id' => $trip->points()->first()->point_id,
+            ],
+        ])->assertCreated();
+
+        $bookingId = $bookingResponse->json('data.booking_id');
+
+        Booking::query()->whereKey($bookingId)->update([
+            'created_at' => now()->subMinutes(45),
+        ]);
+
+        $this->postJson("/api/v1/passenger/bookings/{$bookingId}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.penalty.percentage', 50)
+            ->assertJsonPath('data.penalty.amount', 5000)
+            ->assertJsonPath('data.penalty.wallet_refund_amount', 5000)
+            ->assertJsonPath('data.penalty.rating_penalty', 0.3);
+
+        $this->assertDatabaseHas('booking_cancellations', [
+            'booking_id' => $bookingId,
+            'penalty_percentage' => 50,
+            'penalty_amount' => 5000,
+            'wallet_refund_amount' => 5000,
+        ]);
+
+        $this->assertDatabaseHas('wallet_transactions', [
+            'related_booking_id' => $bookingId,
+            'transaction_type' => 'refund',
+            'amount' => 5000,
+        ]);
+
+        $this->assertDatabaseHas('payments', [
+            'booking_id' => $bookingId,
+            'payment_status' => 'partially_refunded',
+        ]);
+
+        $this->assertSame('45000.00', $passenger->fresh()->wallet->balance);
+    }
+
+    public function test_canceling_within_grace_period_has_no_penalty_and_full_refund(): void
+    {
+        [$pendingStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('cancel-grace@example.com', '0980000012', 30000);
+        $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHour());
+
+        Sanctum::actingAs($passenger);
+
+        $bookingResponse = $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $trip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'electronic',
+            'pickup_point' => [
+                'trip_point_id' => $trip->points()->first()->point_id,
+            ],
+        ])->assertCreated();
+
+        $bookingId = $bookingResponse->json('data.booking_id');
+
+        Booking::query()->whereKey($bookingId)->update([
+            'created_at' => now()->subMinutes(10),
+        ]);
+
+        $this->postJson("/api/v1/passenger/bookings/{$bookingId}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.penalty.grace_period_applied', true)
+            ->assertJsonPath('data.penalty.percentage', 0)
+            ->assertJsonPath('data.penalty.amount', 0)
+            ->assertJsonPath('data.penalty.wallet_refund_amount', 10000)
+            ->assertJsonPath('data.penalty.rating_penalty', 0);
+
+        $this->assertDatabaseMissing('account_restrictions', [
+            'user_id' => $passenger->user_id,
+        ]);
+
+        $this->assertSame('30000.00', $passenger->fresh()->wallet->balance);
+        $this->assertSame('5.00', $passenger->fresh()->rating);
+    }
+
+    public function test_seventh_early_cancellation_creates_temporary_ban_and_blocks_new_booking(): void
+    {
+        [$pendingStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('cancel-ban@example.com', '0980000013', 50000);
+        $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addDays(2));
+        $anotherTrip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addDays(3));
+
+        $this->seedMonthlyEarlyCancellations($passenger, $trip, 6);
+
+        Sanctum::actingAs($passenger);
+
+        $bookingResponse = $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $trip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'electronic',
+            'pickup_point' => [
+                'trip_point_id' => $trip->points()->first()->point_id,
+            ],
+        ])->assertCreated();
+
+        $bookingId = $bookingResponse->json('data.booking_id');
+
+        Booking::query()->whereKey($bookingId)->update([
+            'created_at' => now()->subMinutes(45),
+        ]);
+
+        $this->postJson("/api/v1/passenger/bookings/{$bookingId}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.restriction.type', 'temporary_ban')
+            ->assertJsonPath('data.penalty.rating_penalty', 0.1);
+
+        $this->assertDatabaseHas('account_restrictions', [
+            'user_id' => $passenger->user_id,
+            'restriction_type' => 'temporary_ban',
+            'is_active' => true,
+        ]);
+
+        $this->postJson('/api/v1/passenger/bookings', [
+            'trip_id' => $anotherTrip->trip_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'electronic',
+            'pickup_point' => [
+                'trip_point_id' => $anotherTrip->points()->first()->point_id,
+            ],
+        ])->assertStatus(422);
     }
 
     private function seedTripStatuses(): array
@@ -304,13 +522,19 @@ class PassengerBookingApiTest extends TestCase
         return $passenger;
     }
 
-    private function createTrip(User $driver, int $statusId, Governorate $start, Governorate $end): Trip
+    private function createTrip(
+        User $driver,
+        int $statusId,
+        Governorate $start,
+        Governorate $end,
+        ?Carbon $departureTime = null
+    ): Trip
     {
         $trip = Trip::create([
             'driver_id' => $driver->user_id,
             'start_governorate_id' => $start->governorate_id,
             'end_governorate_id' => $end->governorate_id,
-            'departure_time' => now()->subMinutes(5),
+            'departure_time' => $departureTime ?? now()->subMinutes(5),
             'estimated_duration_minutes' => 90,
             'estimated_distance_km' => 150.5,
             'total_seats' => 4,
@@ -347,6 +571,42 @@ class PassengerBookingApiTest extends TestCase
         ]);
 
         return $trip;
+    }
+
+    private function seedMonthlyEarlyCancellations(User $passenger, Trip $trip, int $count): void
+    {
+        $canceledStatusId = BookingStatus::where('status_key', 'canceled')->value('status_id');
+
+        for ($i = 0; $i < $count; $i++) {
+            $booking = Booking::create([
+                'booking_code' => 'HIST'.str_pad((string) $i, 4, '0', STR_PAD_LEFT),
+                'trip_id' => $trip->trip_id,
+                'passenger_id' => $passenger->user_id,
+                'booking_type' => 'shared',
+                'seats_reserved' => 1,
+                'payment_method' => 'cash',
+                'total_amount' => 10000,
+                'status_id' => $canceledStatusId,
+                'confirmed_at' => now()->subDays(5),
+                'canceled_at' => now()->subDays(5),
+                'created_at' => now()->subDays(6),
+                'updated_at' => now()->subDays(5),
+            ]);
+
+            BookingCancellation::create([
+                'booking_id' => $booking->booking_id,
+                'canceled_by' => $passenger->user_id,
+                'reason' => 'سجل سابق',
+                'cancellation_time' => now()->subDays(5),
+                'hours_before_departure' => 24,
+                'penalty_percentage' => 0,
+                'penalty_amount' => 0,
+                'wallet_refund_amount' => 0,
+                'rating_penalty' => 0.1,
+                'created_at' => now()->subDays(5),
+                'updated_at' => now()->subDays(5),
+            ]);
+        }
     }
 
     private function fakeGovernorateResolver(Governorate $governorate): void

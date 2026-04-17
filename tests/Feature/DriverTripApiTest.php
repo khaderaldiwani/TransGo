@@ -8,11 +8,13 @@ use App\Models\BookingPickupPoint;
 use App\Models\BookingStatus;
 use App\Models\DriverProfile;
 use App\Models\Governorate;
+use App\Models\Notification;
 use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\User;
+use App\Models\UserNotification;
 use App\Models\Vehicle;
 use App\Models\VehicleImage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -110,6 +112,137 @@ class DriverTripApiTest extends TestCase
             ->assertJsonPath('data.attendance.items.0.passenger_name', $passenger->full_name);
     }
 
+    public function test_driver_can_list_grouped_bookings_and_view_booking_details(): void
+    {
+        $driver = $this->createDriverUser();
+        [$pending] = $this->seedTripStatuses();
+        [, $acceptedStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $earlierTrip = $this->createTrip($driver, $pending->status_id, now()->addHour(), $damascus, $homs);
+        $laterTrip = $this->createTrip($driver, $pending->status_id, now()->addHours(3), $damascus, $homs);
+        $passengerOne = $this->createPassengerUser('group1@example.com', '0999999951');
+        $passengerTwo = $this->createPassengerUser('group2@example.com', '0999999952');
+        $passengerThree = $this->createPassengerUser('group3@example.com', '0999999953');
+
+        $firstBooking = $this->createDriverBooking($earlierTrip, $passengerOne, $acceptedStatus, $notCheckedStatus, 'DRV-3001', now()->subMinutes(10));
+        $secondBooking = $this->createDriverBooking($earlierTrip, $passengerTwo, $acceptedStatus, $notCheckedStatus, 'DRV-3002', now()->subMinutes(5));
+        $thirdBooking = $this->createDriverBooking($laterTrip, $passengerThree, $acceptedStatus, $notCheckedStatus, 'DRV-3003', now()->subMinutes(2));
+
+        $notification = Notification::create([
+            'title' => 'طلب حجز جديد',
+            'body' => 'تم استلام طلب جديد.',
+            'notification_type' => 'booking_requested',
+            'reference_type' => Booking::class,
+            'reference_id' => $secondBooking->booking_id,
+            'created_by' => $passengerTwo->user_id,
+            'target_role' => Role::ROLE_DRIVER,
+            'target_governorate_id' => $damascus->governorate_id,
+        ]);
+
+        UserNotification::create([
+            'notification_id' => $notification->notification_id,
+            'user_id' => $driver->user_id,
+            'is_read' => false,
+            'is_sent' => true,
+            'sent_at' => now(),
+        ]);
+
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/driver/bookings?status=accepted')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.trip_id', $earlierTrip->trip_id)
+            ->assertJsonPath('data.items.0.bookings.0.booking_id', $secondBooking->booking_id)
+            ->assertJsonPath('data.items.0.bookings.0.is_new', true)
+            ->assertJsonFragment(['trip_id' => $laterTrip->trip_id]);
+
+        $this->getJson('/api/v1/driver/trips/'.$earlierTrip->trip_id.'/bookings')
+            ->assertOk()
+            ->assertJsonCount(2, 'data.items');
+
+        $this->getJson('/api/v1/driver/bookings/'.$secondBooking->booking_id)
+            ->assertOk()
+            ->assertJsonPath('data.passenger.phone', $passengerTwo->phone)
+            ->assertJsonPath('data.operations.status_update_endpoint', '/api/v1/driver/bookings/'.$secondBooking->booking_id.'/status');
+
+        $this->assertDatabaseHas('user_notifications', [
+            'notification_id' => $notification->notification_id,
+            'user_id' => $driver->user_id,
+            'is_read' => true,
+        ]);
+    }
+
+    public function test_driver_can_reject_accept_and_mark_booking_absent(): void
+    {
+        $driver = $this->createDriverUser();
+        [, $active] = $this->seedTripStatuses();
+        [, $acceptedStatus, , $rejectedStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus, $presentStatus, $absentStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTrip($driver, $active->status_id, now()->subMinutes(10), $damascus, $homs);
+        $passenger = $this->createPassengerUser('status-change@example.com', '0999999960');
+
+        $booking = $this->createDriverBooking(
+            $trip,
+            $passenger,
+            $acceptedStatus,
+            $notCheckedStatus,
+            'DRV-4001',
+            now()->subHour(),
+            'electronic',
+            12000
+        );
+
+        Sanctum::actingAs($driver);
+
+        $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/status', [
+            'status' => 'rejected',
+            'reason' => 'المقاعد غير متاحة الآن',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.booking.status.key', 'rejected');
+
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $booking->booking_id,
+            'status_id' => $rejectedStatus->status_id,
+        ]);
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'available_seats' => 4,
+        ]);
+
+        $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/status', [
+            'status' => 'accepted',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.booking.status.key', 'accepted');
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'available_seats' => 3,
+        ]);
+
+        $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/attendance', [
+            'attendance_status' => 'absent',
+            'notes' => 'لم يحضر إلى نقطة الالتقاء',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.booking.attendance_status.key', 'absent');
+
+        $this->assertDatabaseHas('booking_attendances', [
+            'booking_id' => $booking->booking_id,
+            'status_id' => $absentStatus->status_id,
+            'penalty_amount' => 12000,
+            'rating_penalty' => 0.3,
+        ]);
+
+        $this->assertSame('4.70', $passenger->fresh()->rating);
+    }
+
     public function test_driver_can_cancel_trip_and_related_bookings(): void
     {
         $driver = $this->createDriverUser();
@@ -149,7 +282,7 @@ class DriverTripApiTest extends TestCase
         $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/cancel', [
             'reason' => 'عطل مفاجئ في المركبة',
         ])->assertOk()
-            ->assertJsonPath('data.status.key', TripStatus::CANCELED);
+            ->assertJsonPath('data.classification.key', 'canceled');
 
         $this->assertDatabaseHas('trips', [
             'trip_id' => $trip->trip_id,
@@ -293,6 +426,22 @@ class DriverTripApiTest extends TestCase
                 'display_order' => 3,
                 'is_active' => true,
             ]),
+            BookingStatus::create([
+                'status_key' => 'rejected',
+                'status_name' => 'مرفوض',
+                'description' => 'Rejected',
+                'is_final' => true,
+                'display_order' => 4,
+                'is_active' => true,
+            ]),
+            BookingStatus::create([
+                'status_key' => 'completed',
+                'status_name' => 'منتهي',
+                'description' => 'Completed',
+                'is_final' => true,
+                'display_order' => 5,
+                'is_active' => true,
+            ]),
         ];
     }
 
@@ -305,6 +454,22 @@ class DriverTripApiTest extends TestCase
                 'description' => 'Not checked',
                 'is_final' => false,
                 'display_order' => 1,
+                'is_active' => true,
+            ]),
+            BookingAttendanceStatus::create([
+                'status_key' => 'present',
+                'status_name' => 'حاضر',
+                'description' => 'Present',
+                'is_final' => true,
+                'display_order' => 2,
+                'is_active' => true,
+            ]),
+            BookingAttendanceStatus::create([
+                'status_key' => 'absent',
+                'status_name' => 'غائب',
+                'description' => 'Absent',
+                'is_final' => true,
+                'display_order' => 3,
                 'is_active' => true,
             ]),
         ];
@@ -367,5 +532,49 @@ class DriverTripApiTest extends TestCase
         ]);
 
         return $trip->fresh(['points']);
+    }
+
+    private function createDriverBooking(
+        Trip $trip,
+        User $passenger,
+        BookingStatus $status,
+        BookingAttendanceStatus $attendanceStatus,
+        string $code,
+        $createdAt = null,
+        string $paymentMethod = 'cash',
+        float $amount = 25000
+    ): Booking {
+        $booking = Booking::create([
+            'booking_code' => $code,
+            'trip_id' => $trip->trip_id,
+            'passenger_id' => $passenger->user_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => $paymentMethod,
+            'total_amount' => $amount,
+            'status_id' => $status->status_id,
+            'attendance_status_id' => $attendanceStatus->status_id,
+            'confirmed_at' => now(),
+        ]);
+
+        if ($createdAt !== null) {
+            $booking->forceFill([
+                'created_at' => $createdAt,
+            ])->save();
+        }
+
+        BookingPickupPoint::create([
+            'booking_id' => $booking->booking_id,
+            'trip_point_id' => $trip->points()->first()->point_id,
+            'governorate_id' => $trip->start_governorate_id,
+            'point_name' => 'نقطة الانطلاق',
+            'address' => 'دمشق',
+            'latitude' => 33.5138,
+            'longitude' => 36.2765,
+            'meeting_time' => now()->addMinutes(30),
+            'is_new' => false,
+        ]);
+
+        return $booking;
     }
 }

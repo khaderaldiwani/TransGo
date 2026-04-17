@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Driver\CancelTripRequest;
 use App\Http\Requests\Driver\PreviewTripRequest;
 use App\Http\Requests\Driver\StoreTripRequest;
+use App\Http\Requests\Driver\UpdateBookingAttendanceRequest;
+use App\Http\Requests\Driver\UpdateBookingStatusRequest;
 use App\Http\Resources\ApiResponse;
+use App\Services\DriverBookingManagementService;
 use App\Services\DriverTripManagementService;
 use App\Services\TripPreviewService;
 use App\Services\TripService;
@@ -19,7 +22,8 @@ class TripController extends Controller
     public function __construct(
         protected TripService $tripService,
         protected TripPreviewService $tripPreviewService,
-        protected DriverTripManagementService $driverTripManagementService
+        protected DriverTripManagementService $driverTripManagementService,
+        protected DriverBookingManagementService $driverBookingManagementService
     ) {
     }
 
@@ -125,6 +129,102 @@ class TripController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب بيانات الحضور والغياب.', 500);
+        }
+    }
+
+    public function bookings()
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب طلبات الحجز بنجاح.',
+                200,
+                $this->driverBookingManagementService->listGroupedBookings(
+                    request()->user(),
+                    request()->query('status')
+                )
+            );
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب طلبات الحجز.', 500);
+        }
+    }
+
+    public function tripBookings(int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب طلبات الحجز الخاصة بالرحلة بنجاح.',
+                200,
+                $this->driverBookingManagementService->listTripBookings(
+                    $id,
+                    request()->user(),
+                    request()->query('status')
+                )
+            );
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب طلبات الرحلة.', 500);
+        }
+    }
+
+    public function showBooking(int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب تفاصيل الحجز بنجاح.',
+                200,
+                $this->driverBookingManagementService->showBookingDetails($id, request()->user())
+            );
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب تفاصيل الحجز.', 500);
+        }
+    }
+
+    public function updateBookingStatus(UpdateBookingStatusRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم تحديث حالة الحجز بنجاح.',
+                200,
+                $this->driverBookingManagementService->updateBookingStatus(
+                    $id,
+                    $request->user(),
+                    $request->validated('status'),
+                    $request->validated('reason')
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء تحديث حالة الحجز.', 500);
+        }
+    }
+
+    public function updateBookingAttendance(UpdateBookingAttendanceRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم تحديث حالة الحضور بنجاح.',
+                200,
+                $this->driverBookingManagementService->updateBookingAttendance(
+                    $id,
+                    $request->user(),
+                    $request->validated('attendance_status'),
+                    $request->validated('notes')
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء تحديث حالة الحضور.', 500);
         }
     }
 

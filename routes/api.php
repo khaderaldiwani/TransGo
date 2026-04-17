@@ -81,6 +81,7 @@ Route::prefix('v1/passenger')->group(function () {
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::post('/bookings', [BookingController::class, 'store']);
+        Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
     });
     
 });
@@ -88,17 +89,27 @@ Route::prefix('v1/driver')->group(function () {
     Route::post('/login', [DriverAuthController::class, 'login'])->middleware('throttle:login');
     
     Route::middleware(['auth:sanctum', 'active', 'role:driver'])->group(function(){
+       
+        //trips
+        Route::post('/trips/preview', [TripController::class, 'preview']);
+        Route::post('/trips', [TripController::class, 'store']);
         Route::get('/trips', [TripController::class, 'index']);
         Route::get('/trips/pending', [TripController::class, 'pending']);
         Route::get('/trips/current', [TripController::class, 'current']);
         Route::get('/trips/completed', [TripController::class, 'completed']);
         Route::get('/trips/canceled', [TripController::class, 'canceled']);
-        //
-        Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
         Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
         Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');
-        Route::post('/trips/preview', [TripController::class, 'preview']);
-        Route::post('/trips', [TripController::class, 'store']);
+    
+        
+        //bookings
+        Route::get('/bookings', [TripController::class, 'bookings']);
+        Route::get('/bookings/{id}', [TripController::class, 'showBooking'])->whereNumber('id');
+        Route::patch('/bookings/{id}/status', [TripController::class, 'updateBookingStatus'])->whereNumber('id');
+        Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
+        Route::get('/trips/{id}/bookings', [TripController::class, 'tripBookings'])->whereNumber('id');
+        Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
+        
     });
     
 });
