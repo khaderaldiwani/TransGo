@@ -38,4 +38,9 @@ class Payment extends Model
     {
         return $this->belongsTo(Wallet::class, 'wallet_id', 'wallet_id');
     }
+
+    public function receipts()
+    {
+        return $this->hasMany(Receipt::class, 'related_payment_id', 'payment_id');
+    }
 }

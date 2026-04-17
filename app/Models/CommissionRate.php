@@ -34,6 +34,6 @@ class CommissionRate extends Model
 
     public function receipts()
     {
-        return $this->hasMany(DriverReceipt::class, 'commission_rate_id', 'commission_rate_id');
+        return $this->hasMany(Receipt::class, 'commission_rate_id', 'commission_rate_id');
     }
 }

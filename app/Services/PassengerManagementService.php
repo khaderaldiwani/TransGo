@@ -13,7 +13,7 @@ class PassengerManagementService
     public function listPassengers(array $filters): LengthAwarePaginator
     {
         $query = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_PASSENGER))
-            ->with('roles');
+            ->with(['roles', 'wallet']);
 
         // Advanced filters
         if (!empty($filters['name'])) {
@@ -35,6 +35,10 @@ class PassengerManagementService
                 $q->where('full_name', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%")
                   ->orWhere('phone', 'like', "%{$search}%");
+
+                if (is_numeric($search)) {
+                    $q->orWhere('user_id', (int) $search);
+                }
             });
         }
 
@@ -54,7 +58,7 @@ class PassengerManagementService
     public function getPassenger(int $id): User
     {
         $user = User::whereHas('roles', fn($q) => $q->where('name', Role::ROLE_PASSENGER))
-            ->with('roles')
+            ->with(['roles', 'wallet'])
             ->find($id);
 
         if (!$user) {
@@ -83,6 +87,6 @@ class PassengerManagementService
             'description'   => "Passenger {$user->full_name} (ID: {$user->user_id}) status changed from {$oldStatus} to {$newStatus} by {$actor->full_name} (ID: {$actor->user_id}).",
         ]);
 
-        return $user->fresh('roles');
+        return $user->fresh(['roles', 'wallet']);
     }
 }

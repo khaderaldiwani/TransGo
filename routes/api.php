@@ -15,9 +15,11 @@ use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
+use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
 use App\Http\Controllers\Api\V1\Passenger\BookingController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
+use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
@@ -52,10 +54,8 @@ Route::prefix('v1/admin')->group(function () {
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
-        Route::get('/wallet-topups', [DriverController::class, 'walletTopUps']);
         ///////
         Route::post('/drivers', [DriverController::class, 'store']);
-        Route::post('/drivers/{id}/wallet/top-up', [DriverController::class, 'topUpWallet']);
         // disable or enable driver account
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
@@ -63,6 +63,14 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
+        //wallet top-up history for both drivers and passengers
+        Route::post('/drivers/{id}/wallet/top-up', [DriverController::class, 'topUpWallet']);
+        Route::get('/wallet-topups', [DriverController::class, 'walletTopUps']);
+        Route::get('/driver-wallet-topups', [DriverController::class, 'driverWalletTopUps']);
+      
+        Route::get('/passenger-wallet-topups', [PassengerController::class, 'walletTopUps']);
+        Route::post('/passengers/{id}/wallet/top-up', [PassengerController::class, 'topUpWallet']);
+      
     });
 
     Route::middleware(['auth:sanctum', 'active', 'role:admin,employee'])->group(function () {
@@ -86,6 +94,8 @@ Route::prefix('v1/passenger')->group(function () {
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
+        Route::get('/receipts', [PassengerReceiptController::class, 'index']);
+        Route::get('/receipts/{id}', [PassengerReceiptController::class, 'show'])->whereNumber('id');
     });
     
 });
@@ -113,8 +123,9 @@ Route::prefix('v1/driver')->group(function () {
         Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
         Route::get('/trips/{id}/bookings', [TripController::class, 'tripBookings'])->whereNumber('id');
         Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
+        Route::get('/receipts', [DriverReceiptController::class, 'index']);
+        Route::get('/receipts/{id}', [DriverReceiptController::class, 'show'])->whereNumber('id');
         
     });
     
 });
-

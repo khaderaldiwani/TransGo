@@ -3,6 +3,7 @@ namespace App\Services;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Models\Wallet;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
@@ -46,10 +47,17 @@ class AuthService
 
             $user->roles()->attach($role->id);
 
+            if ($registerRole === Role::ROLE_PASSENGER) {
+                Wallet::firstOrCreate(
+                    ['user_id' => $user->user_id],
+                    ['balance' => 0]
+                );
+            }
+
             // Generate and return the OTP record so the API response matches the service contract.
             $otp = $this->otpService->generate($user);
             return [
-                'user' => $user,
+                'user' => $user->fresh(['wallet', 'roles']),
                 'otp' => $otp,
             ];
         });

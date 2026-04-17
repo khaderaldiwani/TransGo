@@ -94,4 +94,15 @@ class DriverController extends Controller
             return ApiResponse::error('حدث خطأ غير متوقع.', 500);
         }
     }
+
+    public function driverWalletTopUps(WalletTopUpFilterRequest $request)
+    {
+        try {
+            $transactions = $this->driverWalletService->listDriverTopUps($request->validated());
+
+            return ApiResponse::success('تم جلب سجل شحن محافظ السائقين بنجاح.', 200, $transactions);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
 }

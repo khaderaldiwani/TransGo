@@ -87,7 +87,7 @@ class Trip extends Model
 
     public function receipts()
     {
-        return $this->hasMany(DriverReceipt::class, 'trip_id', 'trip_id');
+        return $this->hasMany(Receipt::class, 'related_trip_id', 'trip_id');
     }
 
     public function complaints()

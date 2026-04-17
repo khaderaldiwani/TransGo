@@ -9,6 +9,7 @@ use App\Models\BookingStatus;
 use App\Models\DriverProfile;
 use App\Models\Governorate;
 use App\Models\Notification;
+use App\Models\Payment;
 use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripPoint;
@@ -17,6 +18,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use App\Models\Vehicle;
 use App\Models\VehicleImage;
+use App\Models\Wallet;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -184,6 +186,8 @@ class DriverTripApiTest extends TestCase
 
         $trip = $this->createTrip($driver, $active->status_id, now()->subMinutes(10), $damascus, $homs);
         $passenger = $this->createPassengerUser('status-change@example.com', '0999999960');
+        $passenger->wallet()->update(['balance' => 12000]);
+        $driver->wallet()->update(['balance' => 12000]);
 
         $booking = $this->createDriverBooking(
             $trip,
@@ -214,6 +218,24 @@ class DriverTripApiTest extends TestCase
             'trip_id' => $trip->trip_id,
             'available_seats' => 4,
         ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $passenger->user_id,
+            'balance' => 24000,
+        ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 0,
+        ]);
+        $this->assertDatabaseHas('receipts', [
+            'owner_user_id' => $passenger->user_id,
+            'related_booking_id' => $booking->booking_id,
+            'receipt_type' => 'booking_rejection_refund',
+        ]);
+        $this->assertDatabaseHas('receipts', [
+            'owner_user_id' => $driver->user_id,
+            'related_booking_id' => $booking->booking_id,
+            'receipt_type' => 'booking_rejection_reversal',
+        ]);
 
         $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/status', [
             'status' => 'accepted',
@@ -224,6 +246,14 @@ class DriverTripApiTest extends TestCase
         $this->assertDatabaseHas('trips', [
             'trip_id' => $trip->trip_id,
             'available_seats' => 3,
+        ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $passenger->user_id,
+            'balance' => 12000,
+        ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 12000,
         ]);
 
         $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/attendance', [
@@ -266,15 +296,29 @@ class DriverTripApiTest extends TestCase
             'status_id' => $pendingBookingStatus->status_id,
         ]);
 
+        $electronicPassenger = $passengerTwo;
+        $electronicPassenger->wallet()->update(['balance' => 0]);
+        $driver->wallet()->update(['balance' => 18000]);
+
         Booking::create([
             'booking_code' => 'DRV-2002',
             'trip_id' => $trip->trip_id,
-            'passenger_id' => $passengerTwo->user_id,
+            'passenger_id' => $electronicPassenger->user_id,
             'booking_type' => 'shared',
             'seats_reserved' => 1,
-            'payment_method' => 'cash',
+            'payment_method' => 'electronic',
             'total_amount' => 18000,
             'status_id' => $acceptedBookingStatus->status_id,
+        ]);
+
+        Payment::create([
+            'booking_id' => Booking::query()->where('booking_code', 'DRV-2002')->value('booking_id'),
+            'wallet_id' => $electronicPassenger->wallet->wallet_id,
+            'payment_method' => 'electronic',
+            'amount' => 18000,
+            'payment_status' => 'paid',
+            'transaction_reference' => 'DRV-CANCEL-REF',
+            'paid_at' => now(),
         ]);
 
         Sanctum::actingAs($driver);
@@ -298,6 +342,22 @@ class DriverTripApiTest extends TestCase
         $this->assertDatabaseHas('bookings', [
             'booking_code' => 'DRV-2002',
             'status_id' => $canceledBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $electronicPassenger->user_id,
+            'balance' => 18000,
+        ]);
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 0,
+        ]);
+        $this->assertDatabaseHas('receipts', [
+            'owner_user_id' => $electronicPassenger->user_id,
+            'receipt_type' => 'trip_cancellation_refund',
+        ]);
+        $this->assertDatabaseHas('receipts', [
+            'owner_user_id' => $driver->user_id,
+            'receipt_type' => 'trip_cancellation_reversal',
         ]);
         $this->assertDatabaseCount('notifications', 2);
         $this->assertDatabaseCount('user_notifications', 2);
@@ -346,12 +406,19 @@ class DriverTripApiTest extends TestCase
             'image_url' => 'vehicle.jpg',
         ]);
 
+        Wallet::create([
+            'user_id' => $driver->user_id,
+            'balance' => 0,
+        ]);
+
         return $driver;
     }
 
     private function createPassengerUser(string $email = 'passenger@example.com', string $phone = '0999999910'): User
     {
-        return User::create([
+        $passengerRole = Role::firstOrCreate(['name' => Role::ROLE_PASSENGER]);
+
+        $passenger = User::create([
             'full_name' => 'Passenger Test',
             'phone' => $phone,
             'email' => $email,
@@ -359,6 +426,15 @@ class DriverTripApiTest extends TestCase
             'account_status' => User::STATUS_ACTIVE,
             'registration_type' => User::REGISTRATION_SELF,
         ]);
+
+        $passenger->roles()->attach($passengerRole->id);
+
+        Wallet::create([
+            'user_id' => $passenger->user_id,
+            'balance' => 0,
+        ]);
+
+        return $passenger;
     }
 
     private function seedTripStatuses(): array
@@ -573,6 +649,16 @@ class DriverTripApiTest extends TestCase
             'longitude' => 36.2765,
             'meeting_time' => now()->addMinutes(30),
             'is_new' => false,
+        ]);
+
+        Payment::create([
+            'booking_id' => $booking->booking_id,
+            'wallet_id' => $paymentMethod === 'electronic' ? $passenger->wallet?->wallet_id : null,
+            'payment_method' => $paymentMethod,
+            'amount' => $amount,
+            'payment_status' => $paymentMethod === 'electronic' ? 'paid' : 'pending',
+            'transaction_reference' => $paymentMethod === 'electronic' ? 'PAY-'.$code : null,
+            'paid_at' => $paymentMethod === 'electronic' ? now() : null,
         ]);
 
         return $booking;

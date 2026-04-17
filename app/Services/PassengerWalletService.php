@@ -10,7 +10,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
-class DriverWalletService
+class PassengerWalletService
 {
     public function __construct(
         protected WalletTransactionService $walletTransactionService,
@@ -20,24 +20,24 @@ class DriverWalletService
     ) {
     }
 
-    public function topUp(int $driverId, array $data, User $actor): array
+    public function topUp(int $passengerId, array $data, User $actor): array
     {
         if (! $actor->hasAnyRole([Role::ROLE_ADMIN])) {
             throw new RuntimeException('Forbidden.', 403);
         }
 
-        $driver = User::query()
-            ->whereHas('roles', fn ($query) => $query->where('name', Role::ROLE_DRIVER))
+        $passenger = User::query()
+            ->whereHas('roles', fn ($query) => $query->where('name', Role::ROLE_PASSENGER))
             ->with('wallet')
-            ->find($driverId);
+            ->find($passengerId);
 
-        if (! $driver) {
-            throw new RuntimeException('السائق غير موجود.', 404);
+        if (! $passenger) {
+            throw new RuntimeException('الراكب غير موجود.', 404);
         }
 
-        return DB::transaction(function () use ($driver, $data, $actor) {
+        return DB::transaction(function () use ($passenger, $data, $actor) {
             $wallet = Wallet::firstOrCreate(
-                ['user_id' => $driver->user_id],
+                ['user_id' => $passenger->user_id],
                 ['balance' => 0]
             );
 
@@ -50,7 +50,7 @@ class DriverWalletService
                 ->first();
 
             if ($latestTopUp) {
-                throw new RuntimeException('لا يمكن شحن محفظة هذا السائق أكثر من مرة خلال دقيقة واحدة.', 429);
+                throw new RuntimeException('لا يمكن شحن محفظة هذا الراكب أكثر من مرة خلال دقيقة واحدة.', 429);
             }
 
             $balanceBefore = (float) $wallet->balance;
@@ -65,7 +65,7 @@ class DriverWalletService
                 'amount' => $amount,
                 'transaction_type' => 'topup',
                 'status' => 'completed',
-                'transaction_reference' => $this->walletTransactionService->generateReference(),
+                'transaction_reference' => $this->walletTransactionService->generateReference('PAX-TOP'),
                 'description' => $data['reason'] ?? null,
                 'balance_before' => $balanceBefore,
                 'balance_after' => $balanceAfter,
@@ -73,7 +73,7 @@ class DriverWalletService
             ]);
 
             $receipt = $this->receiptService->createForTransaction($transaction, [
-                'owner_user_id' => $driver->user_id,
+                'owner_user_id' => $passenger->user_id,
                 'wallet_id' => $wallet->wallet_id,
                 'receipt_type' => 'wallet_topup',
                 'direction' => 'credit',
@@ -83,7 +83,7 @@ class DriverWalletService
                 'counterparty_name' => $actor->full_name,
                 'reason' => $data['reason'] ?? 'شحن محفظة من قبل الأدمن.',
                 'metadata' => [
-                    'target_role' => Role::ROLE_DRIVER,
+                    'target_role' => Role::ROLE_PASSENGER,
                     'performed_by_role' => Role::ROLE_ADMIN,
                 ],
             ]);
@@ -103,22 +103,24 @@ class DriverWalletService
                     'transaction_id' => $transaction->transaction_id,
                     'performed_by' => $actor->user_id,
                     'performed_by_role' => Role::ROLE_ADMIN,
+                    'target_user_id' => $passenger->user_id,
+                    'target_role' => Role::ROLE_PASSENGER,
                 ],
-                "Wallet {$wallet->wallet_id} topped up for driver {$driver->full_name} (ID: {$driver->user_id}) by {$actor->full_name} (ID: {$actor->user_id})."
+                "Wallet {$wallet->wallet_id} topped up for passenger {$passenger->full_name} (ID: {$passenger->user_id}) by {$actor->full_name} (ID: {$actor->user_id})."
             );
 
-            $this->userNotificationService->notifyUser($driver->user_id, [
+            $this->userNotificationService->notifyUser($passenger->user_id, [
                 'title' => 'تم شحن المحفظة',
                 'body' => "تمت إضافة مبلغ {$amount} إلى محفظتك. الرصيد الجديد: {$balanceAfter}",
                 'notification_type' => 'wallet_topped_up',
                 'reference_type' => 'wallet_transaction',
                 'reference_id' => $transaction->transaction_id,
                 'created_by' => $actor->user_id,
-                'target_role' => Role::ROLE_DRIVER,
+                'target_role' => Role::ROLE_PASSENGER,
             ]);
 
             return [
-                'driver' => $driver->fresh(['wallet']),
+                'passenger' => $passenger->fresh(['wallet', 'roles']),
                 'wallet' => $wallet->fresh(),
                 'transaction' => $transaction->fresh('performer'),
                 'receipt' => $receipt,
@@ -131,26 +133,11 @@ class DriverWalletService
         $query = WalletTransaction::query()
             ->with(['wallet.user', 'performer'])
             ->where('transaction_type', 'topup')
+            ->whereHas('wallet.user.roles', fn ($roleQuery) => $roleQuery->where('name', Role::ROLE_PASSENGER))
             ->orderByDesc('created_at');
 
-        return $this->applyTopUpFilters($query, $filters, 'driver_id')->paginate($filters['per_page'] ?? 15);
-    }
-
-    public function listDriverTopUps(array $filters): LengthAwarePaginator
-    {
-        $query = WalletTransaction::query()
-            ->with(['wallet.user', 'performer'])
-            ->where('transaction_type', 'topup')
-            ->whereHas('wallet.user.roles', fn ($roleQuery) => $roleQuery->where('name', Role::ROLE_DRIVER))
-            ->orderByDesc('created_at');
-
-        return $this->applyTopUpFilters($query, $filters, 'driver_id')->paginate($filters['per_page'] ?? 15);
-    }
-
-    private function applyTopUpFilters($query, array $filters, string $userFilterKey)
-    {
-        if (! empty($filters[$userFilterKey])) {
-            $query->whereHas('wallet', fn ($walletQuery) => $walletQuery->where('user_id', $filters[$userFilterKey]));
+        if (! empty($filters['passenger_id'])) {
+            $query->whereHas('wallet', fn ($walletQuery) => $walletQuery->where('user_id', $filters['passenger_id']));
         }
 
         if (! empty($filters['date_from'])) {
@@ -177,6 +164,6 @@ class DriverWalletService
             });
         }
 
-        return $query;
+        return $query->paginate($filters['per_page'] ?? 15);
     }
 }

@@ -143,6 +143,11 @@ class User extends Authenticatable
         return $this->hasOne(Wallet::class, 'user_id', 'user_id');
     }
 
+    public function receipts()
+    {
+        return $this->hasMany(Receipt::class, 'owner_user_id', 'user_id');
+    }
+
     public function sentNotifications()
     {
         return $this->hasMany(Notification::class, 'created_by', 'user_id');

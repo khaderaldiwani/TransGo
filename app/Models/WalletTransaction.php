@@ -47,7 +47,7 @@ class WalletTransaction extends Model
 
     public function receipt()
     {
-        return $this->belongsTo(DriverReceipt::class, 'related_receipt_id', 'receipt_id');
+        return $this->belongsTo(Receipt::class, 'related_receipt_id', 'receipt_id');
     }
 
     public function performer()

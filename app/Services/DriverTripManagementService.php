@@ -8,19 +8,28 @@ use App\Models\BookingStatus;
 use App\Models\BookingStatusLog;
 use App\Models\DriverProfile;
 use App\Models\Notification;
+use App\Models\Payment;
 use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripStatus;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Models\Wallet;
+use App\Models\WalletTransaction;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class DriverTripManagementService
 {
+    public function __construct(
+        private readonly ReceiptService $receiptService
+    ) {
+    }
+
     public function listTrips(User $actor): array
     {
         $driverProfile = $this->resolveDriverProfile($actor);
@@ -137,6 +146,7 @@ class DriverTripManagementService
             ->with([
                 'bookings.status',
                 'bookings.passenger',
+                'bookings.payments',
             ])
             ->where('trip_id', $tripId)
             ->first();
@@ -173,6 +183,18 @@ class DriverTripManagementService
                     'canceled_at' => now(),
                 ])->save();
 
+                $payment = Payment::query()
+                    ->where('booking_id', $booking->booking_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $walletRefundAmount = $this->syncPaymentForTripCancellation(
+                    $booking,
+                    $payment,
+                    $actor,
+                    $reasonText
+                );
+
                 BookingStatusLog::create([
                     'booking_id' => $booking->booking_id,
                     'from_status_id' => $fromStatusId,
@@ -182,7 +204,7 @@ class DriverTripManagementService
                     'changed_at' => now(),
                 ]);
 
-                BookingCancellation::firstOrCreate(
+                BookingCancellation::updateOrCreate(
                     ['booking_id' => $booking->booking_id],
                     [
                         'canceled_by' => $actor->user_id,
@@ -191,7 +213,7 @@ class DriverTripManagementService
                         'hours_before_departure' => $this->hoursBeforeDeparture($trip),
                         'penalty_percentage' => 0,
                         'penalty_amount' => 0,
-                        'wallet_refund_amount' => 0,
+                        'wallet_refund_amount' => $walletRefundAmount,
                         'rating_penalty' => 0,
                     ]
                 );
@@ -224,6 +246,65 @@ class DriverTripManagementService
         return $this->showTripDetails($tripId, $actor);
     }
 
+    private function syncPaymentForTripCancellation(Booking $booking, ?Payment $payment, User $driver, string $reason): float
+    {
+        if (! $payment) {
+            return 0.0;
+        }
+
+        if ($payment->payment_method !== 'electronic') {
+            $payment->update([
+                'payment_status' => 'canceled',
+                'failure_reason' => $reason,
+            ]);
+
+            return 0.0;
+        }
+
+        if (in_array($payment->payment_status, ['refunded', 'canceled'], true)) {
+            return 0.0;
+        }
+
+        $passenger = $booking->passenger ?? User::query()->find($booking->passenger_id);
+
+        if (! $passenger) {
+            throw new RuntimeException('تعذر العثور على الراكب المرتبط بالحجز أثناء إلغاء الرحلة.');
+        }
+
+        $amount = round((float) $payment->amount, 2);
+        $passengerWallet = $this->resolveLockedWalletForUser($passenger->user_id);
+        $driverWallet = $this->resolveLockedWalletForUser($driver->user_id);
+
+        $this->creditPassengerWallet(
+            $passengerWallet,
+            $booking,
+            $payment,
+            $passenger,
+            $driver,
+            $amount,
+            'trip_cancellation_refund',
+            'استرداد إلى الراكب بعد إلغاء الرحلة من السائق.'
+        );
+
+        $this->debitDriverWallet(
+            $driverWallet,
+            $booking,
+            $payment,
+            $driver,
+            $passenger,
+            $amount,
+            'trip_cancellation_reversal',
+            'خصم من محفظة السائق بعد إلغاء الرحلة وإعادة المبلغ إلى الراكب.'
+        );
+
+        $payment->update([
+            'payment_status' => 'refunded',
+            'failure_reason' => $reason,
+        ]);
+
+        return $amount;
+    }
+
     private function filteredTrips(User $actor, string $classification): Collection
     {
         $driverProfile = $this->resolveDriverProfile($actor);
@@ -245,6 +326,117 @@ class DriverTripManagementService
         }
 
         return $actor->driverProfile;
+    }
+
+    private function resolveLockedWalletForUser(int $userId): Wallet
+    {
+        Wallet::firstOrCreate(
+            ['user_id' => $userId],
+            ['balance' => 0]
+        );
+
+        return Wallet::query()
+            ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->firstOrFail();
+    }
+
+    private function creditPassengerWallet(
+        Wallet $wallet,
+        Booking $booking,
+        Payment $payment,
+        User $passenger,
+        User $driver,
+        float $amount,
+        string $receiptType,
+        string $reason
+    ): void
+    {
+        $beforeBalance = (float) $wallet->balance;
+        $afterBalance = round($beforeBalance + $amount, 2);
+
+        $wallet->update(['balance' => $afterBalance]);
+
+        $transaction = WalletTransaction::create([
+            'wallet_id' => $wallet->wallet_id,
+            'related_booking_id' => $booking->booking_id,
+            'amount' => $amount,
+            'transaction_type' => 'refund',
+            'status' => 'completed',
+            'transaction_reference' => $payment->transaction_reference ?? Str::uuid()->toString(),
+            'description' => $reason,
+            'balance_before' => $beforeBalance,
+            'balance_after' => $afterBalance,
+            'performed_by' => $driver->user_id,
+        ]);
+
+        $this->receiptService->createForTransaction($transaction, [
+            'owner_user_id' => $passenger->user_id,
+            'wallet_id' => $wallet->wallet_id,
+            'related_payment_id' => $payment->payment_id,
+            'related_booking_id' => $booking->booking_id,
+            'related_trip_id' => $booking->trip_id,
+            'receipt_type' => $receiptType,
+            'direction' => 'credit',
+            'status' => 'received',
+            'amount' => $amount,
+            'counterparty_user_id' => $driver->user_id,
+            'counterparty_name' => $driver->full_name,
+            'reason' => $reason,
+            'metadata' => [
+                'booking_code' => $booking->booking_code,
+                'payment_method' => 'electronic',
+            ],
+        ]);
+    }
+
+    private function debitDriverWallet(
+        Wallet $wallet,
+        Booking $booking,
+        Payment $payment,
+        User $driver,
+        User $passenger,
+        float $amount,
+        string $receiptType,
+        string $reason
+    ): void
+    {
+        $beforeBalance = (float) $wallet->balance;
+        $afterBalance = round($beforeBalance - $amount, 2);
+
+        $wallet->update(['balance' => $afterBalance]);
+
+        $transaction = WalletTransaction::create([
+            'wallet_id' => $wallet->wallet_id,
+            'related_booking_id' => $booking->booking_id,
+            'amount' => $amount,
+            'transaction_type' => 'adjustment',
+            'status' => 'completed',
+            'transaction_reference' => $payment->transaction_reference ?? Str::uuid()->toString(),
+            'description' => $reason,
+            'balance_before' => $beforeBalance,
+            'balance_after' => $afterBalance,
+            'performed_by' => $driver->user_id,
+        ]);
+
+        $this->receiptService->createForTransaction($transaction, [
+            'owner_user_id' => $driver->user_id,
+            'wallet_id' => $wallet->wallet_id,
+            'related_payment_id' => $payment->payment_id,
+            'related_booking_id' => $booking->booking_id,
+            'related_trip_id' => $booking->trip_id,
+            'receipt_type' => $receiptType,
+            'direction' => 'debit',
+            'status' => 'paid',
+            'amount' => $amount,
+            'counterparty_user_id' => $passenger->user_id,
+            'counterparty_name' => $passenger->full_name,
+            'reason' => $reason,
+            'metadata' => [
+                'booking_code' => $booking->booking_code,
+                'payment_method' => 'electronic',
+            ],
+        ]);
     }
 
     private function baseDriverTripsQuery(DriverProfile $driverProfile): Builder

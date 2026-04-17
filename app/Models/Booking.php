@@ -86,6 +86,11 @@ class Booking extends Model
         return $this->hasOne(BookingCancellation::class, 'booking_id', 'booking_id');
     }
 
+    public function receipts()
+    {
+        return $this->hasMany(Receipt::class, 'related_booking_id', 'booking_id');
+    }
+
     public function review()
     {
         return $this->hasOne(DriverReview::class, 'booking_id', 'booking_id');

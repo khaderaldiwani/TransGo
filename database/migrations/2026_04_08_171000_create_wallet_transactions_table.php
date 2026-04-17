@@ -20,10 +20,7 @@ return new class extends Migration
                 ->constrained('bookings', 'booking_id')
                 ->nullOnDelete();
 
-            $table->foreignId('related_receipt_id')
-                ->nullable()
-                ->constrained('driver_receipts', 'receipt_id')
-                ->nullOnDelete();
+            $table->unsignedBigInteger('related_receipt_id')->nullable();
 
             $table->decimal('amount', 12, 2);
             $table->string('transaction_type'); // topup / debit / refund / commission / adjustment

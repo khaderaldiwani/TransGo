@@ -6,6 +6,8 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
+use App\Models\Notification;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -173,6 +175,50 @@ class AdminDriverWalletApiTest extends TestCase
             ->assertJsonPath('data.data.0.wallet.balance', '88.50');
     }
 
+    public function test_driver_wallet_topups_endpoint_returns_driver_records_only(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin-driver-filter@example.com');
+        $driver = $this->createDriver('Driver Wallet', 'driver-only@example.com');
+        $passenger = $this->createPassenger('Passenger Wallet', 'passenger-only@example.com');
+
+        WalletTransaction::create([
+            'wallet_id' => $driver->wallet->wallet_id,
+            'amount' => 120,
+            'transaction_type' => 'topup',
+            'status' => 'completed',
+            'transaction_reference' => 'DRV-TOPUP',
+            'description' => 'Driver topup',
+            'balance_before' => 0,
+            'balance_after' => 120,
+            'performed_by' => $admin->user_id,
+            'created_at' => now()->subDay(),
+            'updated_at' => now()->subDay(),
+        ]);
+
+        WalletTransaction::create([
+            'wallet_id' => $passenger->wallet->wallet_id,
+            'amount' => 90,
+            'transaction_type' => 'topup',
+            'status' => 'completed',
+            'transaction_reference' => 'PAX-TOPUP',
+            'description' => 'Passenger topup',
+            'balance_before' => 0,
+            'balance_after' => 90,
+            'performed_by' => $admin->user_id,
+            'created_at' => now()->subHours(12),
+            'updated_at' => now()->subHours(12),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/admin/driver-wallet-topups');
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(1, 'data.data')
+            ->assertJsonPath('data.data.0.wallet.user.user_id', $driver->user_id);
+    }
+
     private function createBackofficeUser(string $roleName, string $fullName, string $email): User
     {
         $role = Role::firstOrCreate(['name' => $roleName]);
@@ -212,5 +258,28 @@ class AdminDriverWalletApiTest extends TestCase
         ]);
 
         return $driver->fresh('wallet');
+    }
+
+    private function createPassenger(string $fullName, string $email, float $balance = 0): User
+    {
+        $passengerRole = Role::firstOrCreate(['name' => Role::ROLE_PASSENGER]);
+
+        $passenger = User::create([
+            'full_name' => $fullName,
+            'phone' => '09'.fake()->unique()->numerify('########'),
+            'email' => $email,
+            'password' => bcrypt('password'),
+            'account_status' => User::STATUS_ACTIVE,
+            'registration_type' => User::REGISTRATION_SELF,
+        ]);
+
+        $passenger->roles()->attach($passengerRole->id);
+
+        Wallet::create([
+            'user_id' => $passenger->user_id,
+            'balance' => $balance,
+        ]);
+
+        return $passenger->fresh('wallet');
     }
 }
