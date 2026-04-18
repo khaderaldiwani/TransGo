@@ -20,13 +20,17 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 use RuntimeException;
 
 class DriverTripManagementService
 {
     public function __construct(
-        private readonly ReceiptService $receiptService
+        private readonly ReceiptService $receiptService,
+        private readonly CommissionRateService $commissionRateService,
+        private readonly AuditLogService $auditLogService,
+        private readonly WalletTransactionService $walletTransactionService
     ) {
     }
 
@@ -156,7 +160,7 @@ class DriverTripManagementService
         }
 
         $tripStatusKey = $trip->status?->status_key;
-        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::CANCELED], true)) {
+        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
             throw new RuntimeException('لا يمكن إلغاء الرحلات المنجزة أو الملغاة مسبقاً.', 422);
         }
 
@@ -244,6 +248,277 @@ class DriverTripManagementService
         });
 
         return $this->showTripDetails($tripId, $actor);
+    }
+
+    public function startTrip(int $tripId, User $actor, ?string $notes = null): array
+    {
+        $driverProfile = $this->resolveDriverProfile($actor);
+        $trip = $this->baseDriverTripsQuery($driverProfile)
+            ->with([
+                'bookings.status',
+                'bookings.passenger',
+                'bookings.pickupPoint',
+            ])
+            ->where('trip_id', $tripId)
+            ->first();
+
+        if (! $trip) {
+            throw new RuntimeException('الرحلة المطلوبة غير موجودة أو لا تتبع لهذا السائق.', 404);
+        }
+
+        $tripStatusKey = $trip->status?->status_key;
+
+        if ($tripStatusKey === TripStatus::ACTIVE) {
+            throw new RuntimeException('الرحلة نشطة بالفعل.', 422);
+        }
+
+        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
+            throw new RuntimeException('لا يمكن بدء رحلة منتهية أو ملغاة.', 422);
+        }
+
+        if ($trip->departure_time && now()->lt(Carbon::parse($trip->departure_time))) {
+            throw new RuntimeException('لا يمكن بدء الرحلة قبل دخول وقت الانطلاق.', 422);
+        }
+
+        $activeTripStatus = $this->resolveTripStatus(TripStatus::ACTIVE);
+
+        DB::transaction(function () use ($trip, $actor, $activeTripStatus, $notes) {
+            $oldStatusId = $trip->status_id;
+
+            $trip->forceFill([
+                'status_id' => $activeTripStatus->status_id,
+                'actual_start_time' => now(),
+            ])->save();
+
+            $this->auditLogService->log(
+                $actor,
+                'trip.started',
+                Trip::class,
+                $trip->trip_id,
+                [
+                    'status_id' => $oldStatusId,
+                    'actual_start_time' => null,
+                ],
+                [
+                    'status_id' => $activeTripStatus->status_id,
+                    'actual_start_time' => $trip->actual_start_time?->toIso8601String(),
+                    'notes' => $notes,
+                ],
+                "Trip {$trip->trip_id} started by {$actor->full_name}."
+            );
+
+            $this->notifyPassengersTripStarted($trip, $actor);
+        });
+
+        return $this->showTripDetails($tripId, $actor);
+    }
+
+    public function completeTrip(int $tripId, User $actor, ?string $notes = null, ?float $latitude = null, ?float $longitude = null): array
+    {
+        $driverProfile = $this->resolveDriverProfile($actor);
+        $trip = $this->baseDriverTripsQuery($driverProfile)
+            ->with([
+                'bookings.status',
+                'bookings.attendanceStatus',
+                'bookings.passenger',
+                'bookings.payments',
+                'commissionRate',
+            ])
+            ->where('trip_id', $tripId)
+            ->first();
+
+        if (! $trip) {
+            throw new RuntimeException('الرحلة المطلوبة غير موجودة أو لا تتبع لهذا السائق.', 404);
+        }
+
+        $tripStatusKey = $trip->status?->status_key;
+        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
+            throw new RuntimeException('لا يمكن إنهاء رحلة مكتملة أو ملغاة مسبقاً.', 422);
+        }
+
+        if ($trip->departure_time && now()->lt(Carbon::parse($trip->departure_time))) {
+            throw new RuntimeException('لا يمكن إنهاء الرحلة قبل وقت انطلاقها.', 422);
+        }
+
+        $this->ensureDriverCompletionEligibility($trip, $latitude, $longitude);
+
+        $completedTripStatus = $this->resolveTripStatus(TripStatus::COMPLETED);
+        $completedBookingStatus = $this->resolveBookingStatus('completed');
+
+        DB::transaction(function () use ($trip, $actor, $completedTripStatus, $completedBookingStatus, $notes, $latitude, $longitude) {
+            $oldTripState = [
+                'status_id' => $trip->status_id,
+                'gross_revenue_amount' => $trip->gross_revenue_amount,
+                'commission_amount' => $trip->commission_amount,
+                'net_revenue_amount' => $trip->net_revenue_amount,
+                'completion_mode' => $trip->completion_mode,
+                'completion_reason' => $trip->completion_reason,
+            ];
+
+            $completedAt = now();
+
+            $grossRevenue = $this->commissionRateService->calculateTripGrossRevenue($trip);
+            $commissionPercentage = round((float) ($trip->commission_percentage ?? 0), 2);
+            $commissionAmount = $this->commissionRateService->calculateCommissionAmount($grossRevenue, $commissionPercentage);
+            $netRevenue = round($grossRevenue - $commissionAmount, 2);
+
+            $driverWallet = $this->resolveLockedWalletForUser($actor->user_id);
+
+            if ((float) $driverWallet->balance < $commissionAmount) {
+                throw new RuntimeException('رصيد محفظة السائق غير كافٍ لخصم عمولة الرحلة المكتملة.', 422);
+            }
+
+            $this->markTripBookingsAsCompleted($trip, $completedBookingStatus, $actor, $notes);
+
+            if ($commissionAmount > 0) {
+                $this->deductCompletedTripCommission(
+                    $trip,
+                    $driverWallet,
+                    $actor,
+                    $grossRevenue,
+                    $commissionAmount,
+                    $netRevenue
+                );
+            }
+
+            $trip->forceFill([
+                'status_id' => $completedTripStatus->status_id,
+                'gross_revenue_amount' => $grossRevenue,
+                'commission_amount' => $commissionAmount,
+                'net_revenue_amount' => $netRevenue,
+                'completed_at' => $completedAt,
+                'completion_mode' => 'driver',
+                'completion_reason' => $latitude !== null && $longitude !== null ? 'driver_near_destination' : 'driver_time_fallback',
+                'tracking_stopped_at' => $completedAt,
+                'completion_latitude' => $latitude,
+                'completion_longitude' => $longitude,
+            ])->save();
+
+            $this->auditLogService->log(
+                $actor,
+                'trip.completed',
+                Trip::class,
+                $trip->trip_id,
+                $oldTripState,
+                [
+                    'status_id' => $completedTripStatus->status_id,
+                    'gross_revenue_amount' => $grossRevenue,
+                    'commission_amount' => $commissionAmount,
+                    'net_revenue_amount' => $netRevenue,
+                    'completed_at' => $completedAt->toIso8601String(),
+                    'completion_mode' => 'driver',
+                    'completion_reason' => $latitude !== null && $longitude !== null ? 'driver_near_destination' : 'driver_time_fallback',
+                ],
+                "Trip {$trip->trip_id} completed by {$actor->full_name}."
+            );
+
+            $this->notifyTripCompleted($trip->fresh(['bookings.status', 'bookings.passenger']), $actor, false);
+        });
+
+        return $this->showTripDetails($tripId, $actor);
+    }
+
+    public function autoCompleteEligibleTrips(): array
+    {
+        $activeStatusId = $this->resolveTripStatus(TripStatus::ACTIVE)->status_id;
+        $autoCompletedTripStatus = $this->resolveTripStatus(TripStatus::AUTO_COMPLETED);
+        $completedBookingStatus = $this->resolveBookingStatus('completed');
+
+        $trips = Trip::query()
+            ->where('status_id', $activeStatusId)
+            ->with([
+                'status',
+                'bookings.status',
+                'bookings.attendanceStatus',
+                'bookings.passenger',
+                'bookings.payments',
+                'points',
+                'driver.user',
+            ])
+            ->get()
+            ->filter(fn (Trip $trip) => $this->shouldAutoCompleteTrip($trip))
+            ->values();
+
+        $completedTripIds = [];
+
+        foreach ($trips as $trip) {
+            DB::transaction(function () use ($trip, $autoCompletedTripStatus, $completedBookingStatus) {
+                $oldTripState = [
+                    'status_id' => $trip->status_id,
+                    'gross_revenue_amount' => $trip->gross_revenue_amount,
+                    'commission_amount' => $trip->commission_amount,
+                    'net_revenue_amount' => $trip->net_revenue_amount,
+                    'completion_mode' => $trip->completion_mode,
+                    'completion_reason' => $trip->completion_reason,
+                ];
+
+                $completedAt = now();
+                $grossRevenue = $this->commissionRateService->calculateTripGrossRevenue($trip);
+                $commissionPercentage = round((float) ($trip->commission_percentage ?? 0), 2);
+                $commissionAmount = $this->commissionRateService->calculateCommissionAmount($grossRevenue, $commissionPercentage);
+                $netRevenue = round($grossRevenue - $commissionAmount, 2);
+
+                $driverUserId = $trip->driver_id;
+                $driverWallet = $this->resolveLockedWalletForUser($driverUserId);
+
+                if ((float) $driverWallet->balance < $commissionAmount) {
+                    throw new RuntimeException('رصيد محفظة السائق غير كافٍ لخصم عمولة الرحلة المنتهية تلقائياً.', 422);
+                }
+
+                $this->markTripBookingsAsCompleted($trip, $completedBookingStatus, null, 'تم إغلاق الحجوزات عند الإنهاء التلقائي للرحلة.');
+
+                if ($commissionAmount > 0) {
+                    $driver = $trip->driver?->user ?? User::query()->findOrFail($driverUserId);
+
+                    $this->deductCompletedTripCommission(
+                        $trip,
+                        $driverWallet,
+                        $driver,
+                        $grossRevenue,
+                        $commissionAmount,
+                        $netRevenue
+                    );
+                }
+
+                $trip->forceFill([
+                    'status_id' => $autoCompletedTripStatus->status_id,
+                    'gross_revenue_amount' => $grossRevenue,
+                    'commission_amount' => $commissionAmount,
+                    'net_revenue_amount' => $netRevenue,
+                    'completed_at' => $completedAt,
+                    'completion_mode' => 'system',
+                    'completion_reason' => 'system_timeout_after_expected_arrival',
+                    'tracking_stopped_at' => $completedAt,
+                ])->save();
+
+                $this->auditLogService->log(
+                    null,
+                    'trip.auto_completed',
+                    Trip::class,
+                    $trip->trip_id,
+                    $oldTripState,
+                    [
+                        'status_id' => $autoCompletedTripStatus->status_id,
+                        'gross_revenue_amount' => $grossRevenue,
+                        'commission_amount' => $commissionAmount,
+                        'net_revenue_amount' => $netRevenue,
+                        'completed_at' => $completedAt->toIso8601String(),
+                        'completion_mode' => 'system',
+                        'completion_reason' => 'system_timeout_after_expected_arrival',
+                    ],
+                    "Trip {$trip->trip_id} auto-completed by system."
+                );
+
+                $this->notifyTripCompleted($trip->fresh(['bookings.status', 'bookings.passenger']), null, true);
+            });
+
+            $completedTripIds[] = $trip->trip_id;
+        }
+
+        return [
+            'count' => count($completedTripIds),
+            'trip_ids' => $completedTripIds,
+        ];
     }
 
     private function syncPaymentForTripCancellation(Booking $booking, ?Payment $payment, User $driver, string $reason): float
@@ -445,6 +720,7 @@ class DriverTripManagementService
             ->where('driver_id', $driverProfile->user_id)
             ->with([
                 'status',
+                'commissionRate',
                 'startGovernorate',
                 'endGovernorate',
                 'points',
@@ -503,6 +779,25 @@ class DriverTripManagementService
                 'shared_price' => $trip->shared_price !== null ? (float) $trip->shared_price : null,
                 'private_price' => $trip->private_price !== null ? (float) $trip->private_price : null,
                 'remaining_seats' => (int) $trip->available_seats,
+                'commission' => [
+                    'rate_id' => $trip->commission_rate_id,
+                    'percentage' => (float) ($trip->commission_percentage ?? 0),
+                    'max_commission_amount' => (float) ($trip->max_commission_amount ?? 0),
+                    'gross_revenue_amount' => $trip->gross_revenue_amount !== null ? (float) $trip->gross_revenue_amount : null,
+                    'commission_amount' => $trip->commission_amount !== null ? (float) $trip->commission_amount : null,
+                    'net_revenue_amount' => $trip->net_revenue_amount !== null ? (float) $trip->net_revenue_amount : null,
+                ],
+                'actual_start_time' => optional($trip->actual_start_time)->toIso8601String(),
+                'completed_at' => optional($trip->completed_at)->toIso8601String(),
+                'completion' => [
+                    'mode' => $trip->completion_mode,
+                    'reason' => $trip->completion_reason,
+                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
+                    'location' => [
+                        'latitude' => $trip->completion_latitude !== null ? (float) $trip->completion_latitude : null,
+                        'longitude' => $trip->completion_longitude !== null ? (float) $trip->completion_longitude : null,
+                    ],
+                ],
                 'vehicle' => [
                     'type' => $vehicle?->car_type,
                     'model' => $vehicle?->certified_agency,
@@ -522,6 +817,8 @@ class DriverTripManagementService
                 })->values(),
                 'bookings_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/bookings",
                 'attendance_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/attendance",
+                'start_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/start",
+                'complete_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/complete",
                 'cancel_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/cancel",
             ],
         ];
@@ -576,7 +873,7 @@ class DriverTripManagementService
             return ['key' => 'canceled', 'name' => 'ملغاة'];
         }
 
-        if ($statusKey === TripStatus::COMPLETED) {
+        if (in_array($statusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
             return ['key' => 'completed', 'name' => 'منجزة'];
         }
 
@@ -644,5 +941,274 @@ class DriverTripManagementService
         }
 
         return round(now()->floatDiffInHours(Carbon::parse($trip->departure_time), false), 2);
+    }
+
+    private function ensureDriverCompletionEligibility(Trip $trip, ?float $latitude, ?float $longitude): void
+    {
+        if ($latitude === null || $longitude === null) {
+            $expectedArrival = $this->expectedArrival($trip);
+
+            if ($expectedArrival && now()->lt($expectedArrival)) {
+                throw ValidationException::withMessages([
+                    'latitude' => 'لا يمكن إنهاء الرحلة دون موقع السائق قبل وقت الوصول المتوقع.',
+                ]);
+            }
+
+            return;
+        }
+
+        $endPoint = $this->resolveTripEndPoint($trip);
+
+        if (! $endPoint) {
+            throw new RuntimeException('لا يمكن التحقق من نقطة نهاية الرحلة لعدم وجود نقطة وصول صالحة.', 422);
+        }
+
+        $distanceMeters = $this->calculateDistanceMeters(
+            $latitude,
+            $longitude,
+            (float) $endPoint->latitude,
+            (float) $endPoint->longitude
+        );
+
+        if ($distanceMeters > 500) {
+            throw ValidationException::withMessages([
+                'latitude' => 'لا يمكن إنهاء الرحلة لأن السائق ليس قريباً بما يكفي من نقطة النهاية.',
+            ]);
+        }
+    }
+
+    private function shouldAutoCompleteTrip(Trip $trip): bool
+    {
+        $statusKey = $trip->status?->status_key;
+
+        if ($statusKey !== TripStatus::ACTIVE) {
+            return false;
+        }
+
+        $expectedArrival = $this->expectedArrival($trip);
+
+        if (! $expectedArrival) {
+            return false;
+        }
+
+        return now()->greaterThanOrEqualTo($expectedArrival->copy()->addHours(2));
+    }
+
+    private function resolveTripEndPoint(Trip $trip): mixed
+    {
+        $trip->loadMissing('points');
+
+        return $trip->points
+            ->sortByDesc('sequence_order')
+            ->first(fn ($point) => $point->point_type === 'end')
+            ?? $trip->points->sortByDesc('sequence_order')->first();
+    }
+
+    private function calculateDistanceMeters(
+        float $fromLatitude,
+        float $fromLongitude,
+        float $toLatitude,
+        float $toLongitude
+    ): float {
+        $earthRadius = 6371000;
+        $latitudeDelta = deg2rad($toLatitude - $fromLatitude);
+        $longitudeDelta = deg2rad($toLongitude - $fromLongitude);
+
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($fromLatitude))
+            * cos(deg2rad($toLatitude))
+            * sin($longitudeDelta / 2) ** 2;
+
+        return 2 * $earthRadius * asin(min(1, sqrt($a)));
+    }
+
+    private function markTripBookingsAsCompleted(
+        Trip $trip,
+        BookingStatus $completedBookingStatus,
+        ?User $actor,
+        ?string $notes
+    ): void {
+        foreach ($trip->bookings as $booking) {
+            $statusKey = $booking->status?->status_key;
+
+            if (in_array($statusKey, ['canceled', 'rejected', 'completed'], true)) {
+                continue;
+            }
+
+            $fromStatusId = $booking->status_id;
+
+            $booking->forceFill([
+                'status_id' => $completedBookingStatus->status_id,
+                'completed_at' => now(),
+            ])->save();
+
+            BookingStatusLog::create([
+                'booking_id' => $booking->booking_id,
+                'from_status_id' => $fromStatusId,
+                'to_status_id' => $completedBookingStatus->status_id,
+                'changed_by' => $actor?->user_id,
+                'reason' => $notes ?: 'تم إنهاء الرحلة وتحديث الحجز إلى منتهي.',
+                'changed_at' => now(),
+            ]);
+
+            $payment = $booking->payments->sortByDesc('payment_id')->first();
+            if ($payment && $payment->payment_method === 'cash') {
+                $payment->update([
+                    'payment_status' => 'paid',
+                    'paid_at' => now(),
+                    'failure_reason' => null,
+                ]);
+            }
+        }
+    }
+
+    private function deductCompletedTripCommission(
+        Trip $trip,
+        Wallet $wallet,
+        User $driver,
+        float $grossRevenue,
+        float $commissionAmount,
+        float $netRevenue
+    ): void {
+        $beforeBalance = (float) $wallet->balance;
+        $afterBalance = round($beforeBalance - $commissionAmount, 2);
+
+        $wallet->update(['balance' => $afterBalance]);
+
+        $reference = $this->walletTransactionService->generateReference('WLT-COM');
+
+        $transaction = WalletTransaction::create([
+            'wallet_id' => $wallet->wallet_id,
+            'amount' => $commissionAmount,
+            'transaction_type' => 'commission',
+            'status' => 'completed',
+            'transaction_reference' => $reference,
+            'description' => 'خصم عمولة النظام على رحلة مكتملة.',
+            'balance_before' => $beforeBalance,
+            'balance_after' => $afterBalance,
+            'performed_by' => $driver->user_id,
+        ]);
+
+        $this->receiptService->createForTransaction($transaction, [
+            'owner_user_id' => $driver->user_id,
+            'wallet_id' => $wallet->wallet_id,
+            'related_trip_id' => $trip->trip_id,
+            'commission_rate_id' => $trip->commission_rate_id,
+            'receipt_type' => 'driver_trip_settlement',
+            'direction' => 'debit',
+            'status' => 'paid',
+            'amount' => $commissionAmount,
+            'counterparty_name' => 'System',
+            'reason' => 'خصم عمولة النظام على رحلة مكتملة.',
+            'gross_amount' => $grossRevenue,
+            'commission_percentage' => (float) $trip->commission_percentage,
+            'commission_amount' => $commissionAmount,
+            'net_amount' => $netRevenue,
+            'metadata' => [
+                'trip_id' => $trip->trip_id,
+            ],
+        ]);
+    }
+
+    private function notifyPassengersTripStarted(Trip $trip, User $actor): void
+    {
+        $passengerIds = $trip->bookings
+            ->filter(fn (Booking $booking) => ! in_array($booking->status?->status_key, ['canceled', 'rejected'], true))
+            ->pluck('passenger_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($passengerIds->isEmpty()) {
+            return;
+        }
+
+        $notification = Notification::create([
+            'title' => 'بدء الرحلة',
+            'body' => "بدأت الرحلة رقم {$trip->trip_id} ويمكنك الآن متابعتها.",
+            'notification_type' => 'trip_started',
+            'reference_type' => 'trip',
+            'reference_id' => $trip->trip_id,
+            'created_by' => $actor->user_id,
+            'target_role' => Role::ROLE_PASSENGER,
+        ]);
+
+        foreach ($passengerIds as $passengerId) {
+            UserNotification::firstOrCreate(
+                [
+                    'notification_id' => $notification->notification_id,
+                    'user_id' => $passengerId,
+                ],
+                [
+                    'is_sent' => true,
+                    'sent_at' => now(),
+                ]
+            );
+        }
+    }
+
+    private function notifyTripCompleted(Trip $trip, ?User $actor, bool $autoCompleted): void
+    {
+        $passengerIds = $trip->bookings
+            ->filter(fn (Booking $booking) => ! in_array($booking->status?->status_key, ['canceled', 'rejected'], true))
+            ->pluck('passenger_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $passengerTitle = $autoCompleted ? 'تم إنهاء الرحلة تلقائياً' : 'تم إنهاء الرحلة';
+        $passengerBody = $autoCompleted
+            ? "تم إنهاء الرحلة رقم {$trip->trip_id} تلقائياً من قبل النظام، ويمكنك الآن تقييم الرحلة أو السائق."
+            : "تم إنهاء الرحلة رقم {$trip->trip_id} بنجاح، ويمكنك الآن تقييم الرحلة أو السائق.";
+
+        if ($passengerIds->isNotEmpty()) {
+            $notification = Notification::create([
+                'title' => $passengerTitle,
+                'body' => $passengerBody,
+                'notification_type' => $autoCompleted ? 'trip_auto_completed' : 'trip_completed',
+                'reference_type' => 'trip',
+                'reference_id' => $trip->trip_id,
+                'created_by' => $actor?->user_id,
+                'target_role' => Role::ROLE_PASSENGER,
+            ]);
+
+            foreach ($passengerIds as $passengerId) {
+                UserNotification::firstOrCreate(
+                    [
+                        'notification_id' => $notification->notification_id,
+                        'user_id' => $passengerId,
+                    ],
+                    [
+                        'is_sent' => true,
+                        'sent_at' => now(),
+                    ]
+                );
+            }
+        }
+
+        if ($trip->driver_id) {
+            $driverNotification = Notification::create([
+                'title' => $passengerTitle,
+                'body' => $autoCompleted
+                    ? "تم إنهاء الرحلة رقم {$trip->trip_id} تلقائياً من قبل النظام واحتساب المستحقات المالية."
+                    : "تم إنهاء الرحلة رقم {$trip->trip_id} واحتساب المستحقات المالية.",
+                'notification_type' => $autoCompleted ? 'driver_trip_auto_completed' : 'driver_trip_completed',
+                'reference_type' => 'trip',
+                'reference_id' => $trip->trip_id,
+                'created_by' => $actor?->user_id,
+                'target_role' => Role::ROLE_DRIVER,
+            ]);
+
+            UserNotification::firstOrCreate(
+                [
+                    'notification_id' => $driverNotification->notification_id,
+                    'user_id' => $trip->driver_id,
+                ],
+                [
+                    'is_sent' => true,
+                    'sent_at' => now(),
+                ]
+            );
+        }
     }
 }

@@ -7,6 +7,7 @@ use App\Models\BookingAttendanceStatus;
 use App\Models\BookingPickupPoint;
 use App\Models\BookingStatus;
 use App\Models\DriverProfile;
+use App\Models\CommissionRate;
 use App\Models\Governorate;
 use App\Models\Notification;
 use App\Models\Payment;
@@ -21,6 +22,7 @@ use App\Models\Vehicle;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
+use App\Services\GovernorateResolverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -114,6 +116,54 @@ class DriverTripApiTest extends TestCase
         $this->getJson('/api/v1/driver/trips/'.$trip->trip_id.'/attendance')
             ->assertOk()
             ->assertJsonPath('data.attendance.items.0.passenger_name', $passenger->full_name);
+    }
+
+    public function test_driver_can_start_trip_and_notify_passengers(): void
+    {
+        $driver = $this->createDriverUser();
+        [$pending, $active] = $this->seedTripStatuses();
+        [, $acceptedStatus, $canceledStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTrip($driver, $pending->status_id, now()->subMinutes(5), $damascus, $homs);
+        $passenger = $this->createPassengerUser('start-trip@example.com', '0999999970');
+        $canceledPassenger = $this->createPassengerUser('start-trip-canceled@example.com', '0999999971');
+
+        $this->createDriverBooking($trip, $passenger, $acceptedStatus, $notCheckedStatus, 'DRV-START-1', now()->subMinutes(15));
+        $this->createDriverBooking($trip, $canceledPassenger, $canceledStatus, $notCheckedStatus, 'DRV-START-2', now()->subMinutes(10));
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/start', [
+            'notes' => 'انطلقت الرحلة الآن',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.classification.key', 'current')
+            ->assertJsonPath('data.trip_details.start_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/start');
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'status_id' => $active->status_id,
+        ]);
+
+        $notificationId = Notification::query()
+            ->where('notification_type', 'trip_started')
+            ->where('reference_id', $trip->trip_id)
+            ->value('notification_id');
+
+        $this->assertNotNull($notificationId);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'notification_id' => $notificationId,
+            'user_id' => $passenger->user_id,
+            'is_sent' => true,
+        ]);
+
+        $this->assertDatabaseMissing('user_notifications', [
+            'notification_id' => $notificationId,
+            'user_id' => $canceledPassenger->user_id,
+        ]);
     }
 
     public function test_driver_can_list_grouped_bookings_and_view_booking_details(): void
@@ -275,6 +325,53 @@ class DriverTripApiTest extends TestCase
         $this->assertSame('4.70', $passenger->fresh()->rating);
     }
 
+    public function test_driver_can_mark_booking_present_and_raise_passenger_rating(): void
+    {
+        $driver = $this->createDriverUser();
+        [, $active] = $this->seedTripStatuses();
+        [, $acceptedStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus, $presentStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTrip($driver, $active->status_id, now()->subMinutes(10), $damascus, $homs);
+        $passenger = $this->createPassengerUser('present-status@example.com', '0999999961');
+        $passenger->update(['rating' => 4.5]);
+
+        $booking = $this->createDriverBooking(
+            $trip,
+            $passenger,
+            $acceptedStatus,
+            $notCheckedStatus,
+            'DRV-4002',
+            now()->subHour(),
+            'cash',
+            9000
+        );
+
+        Sanctum::actingAs($driver);
+
+        $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/attendance', [
+            'attendance_status' => 'present',
+            'notes' => 'حضر إلى نقطة الالتقاء',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.booking.attendance_status.key', 'present');
+
+        $this->assertDatabaseHas('booking_attendances', [
+            'booking_id' => $booking->booking_id,
+            'status_id' => $presentStatus->status_id,
+            'penalty_amount' => 0,
+            'rating_penalty' => 0,
+        ]);
+
+        $this->assertSame('4.60', $passenger->fresh()->rating);
+
+        $this->patchJson('/api/v1/driver/bookings/'.$booking->booking_id.'/attendance', [
+            'attendance_status' => 'absent',
+            'notes' => 'محاولة تعديل غير مسموحة',
+        ])->assertStatus(422);
+    }
+
     public function test_driver_can_cancel_trip_and_related_bookings(): void
     {
         $driver = $this->createDriverUser();
@@ -371,6 +468,78 @@ class DriverTripApiTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_completed_trip_commission_counts_electronic_absent_only_and_excludes_cash_absent(): void
+    {
+        $driver = $this->createDriverUser();
+        [, $active, $completedStatus] = $this->seedTripStatuses();
+        [, $acceptedStatus, , , $completedBookingStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus, $presentStatus, $absentStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $rate = CommissionRate::create([
+            'percentage' => 10,
+            'previous_percentage' => 5,
+            'effective_from' => now()->subDay(),
+            'effective_to' => null,
+            'is_active' => true,
+        ]);
+
+        $trip = $this->createTrip($driver, $active->status_id, now()->subHours(2), $damascus, $homs);
+        $trip->update([
+            'commission_rate_id' => $rate->commission_rate_id,
+            'commission_percentage' => 10,
+        ]);
+
+        $driver->wallet()->update(['balance' => 5000]);
+
+        $electronicPassenger = $this->createPassengerUser('electronic-absent@example.com', '0999999805');
+        $cashPassenger = $this->createPassengerUser('cash-absent@example.com', '0999999806');
+        $presentPassenger = $this->createPassengerUser('present-passenger@example.com', '0999999807');
+
+        $electronicBooking = $this->createDriverBooking($trip, $electronicPassenger, $acceptedStatus, $absentStatus, 'DRV-6001', now()->subMinutes(40), 'electronic', 10000);
+        $cashAbsentBooking = $this->createDriverBooking($trip, $cashPassenger, $acceptedStatus, $absentStatus, 'DRV-6002', now()->subMinutes(30), 'cash', 10000);
+        $presentBooking = $this->createDriverBooking($trip, $presentPassenger, $acceptedStatus, $presentStatus, 'DRV-6003', now()->subMinutes(20), 'cash', 10000);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/complete', [
+            'latitude' => 34.7308,
+            'longitude' => 36.7090,
+            'notes' => 'احتساب الإيراد الفعلي مع غائب إلكتروني',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.classification.key', 'completed')
+            ->assertJsonPath('data.trip_details.commission.gross_revenue_amount', 20000)
+            ->assertJsonPath('data.trip_details.commission.commission_amount', 2000)
+            ->assertJsonPath('data.trip_details.commission.net_revenue_amount', 18000);
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'status_id' => $completedStatus->status_id,
+            'gross_revenue_amount' => 20000,
+            'commission_amount' => 2000,
+            'net_revenue_amount' => 18000,
+        ]);
+
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $electronicBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $cashAbsentBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $presentBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 3000,
+        ]);
+    }
+
     public function test_driver_can_view_wallet_with_last_one_hundred_transaction_cards(): void
     {
         $driver = $this->createDriverUser();
@@ -436,6 +605,212 @@ class DriverTripApiTest extends TestCase
             ->assertJsonPath('data.wallet.recent_transactions.0.actor_name', 'Wallet Admin')
             ->assertJsonPath('data.wallet.recent_transactions.0.reason', 'حجز إلكتروني للرحلة 105')
             ->assertJsonPath('data.wallet.recent_transactions.0.details_endpoint', '/api/v1/driver/wallet/transactions/105');
+    }
+
+    public function test_driver_cannot_create_trip_if_wallet_does_not_cover_max_commission(): void
+    {
+        $driver = $this->createDriverUser();
+        [$damascus] = $this->createGovernorates();
+        $this->fakeGovernorateResolver($damascus);
+
+        CommissionRate::create([
+            'percentage' => 20,
+            'effective_from' => now()->subHour(),
+            'is_active' => true,
+            'created_by' => $driver->user_id,
+        ]);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips', [
+            'departure_time' => now()->addHours(2)->toIso8601String(),
+            'total_seats' => 4,
+            'allow_shared' => true,
+            'allow_private' => false,
+            'shared_price' => 3000,
+            'points' => [
+                [
+                    'point_type' => 'start',
+                    'latitude' => 33.5138,
+                    'longitude' => 36.2765,
+                ],
+                [
+                    'point_type' => 'end',
+                    'latitude' => 34.7308,
+                    'longitude' => 36.7090,
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('wallet_balance');
+    }
+
+    public function test_driver_can_complete_trip_and_commission_is_deducted_from_gross_revenue(): void
+    {
+        $driver = $this->createDriverUser();
+        $driver->wallet()->update(['balance' => 5000]);
+
+        [, $active] = $this->seedTripStatuses();
+        [$pendingStatus, $acceptedStatus, $canceledStatus, , $completedBookingStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $commissionRate = CommissionRate::create([
+            'percentage' => 10,
+            'effective_from' => now()->subHour(),
+            'is_active' => true,
+            'created_by' => $driver->user_id,
+        ]);
+
+        $trip = $this->createTrip($driver, $active->status_id, now()->subHours(2), $damascus, $homs);
+        $trip->update([
+            'commission_rate_id' => $commissionRate->commission_rate_id,
+            'commission_percentage' => 10,
+            'max_commission_amount' => 4000,
+        ]);
+
+        $passengerOne = $this->createPassengerUser('complete1@example.com', '0999999801');
+        $passengerTwo = $this->createPassengerUser('complete2@example.com', '0999999802');
+        $passengerThree = $this->createPassengerUser('complete3@example.com', '0999999803');
+        $passengerCanceled = $this->createPassengerUser('complete4@example.com', '0999999804');
+
+        $firstBooking = $this->createDriverBooking($trip, $passengerOne, $acceptedStatus, $notCheckedStatus, 'DRV-5001', now()->subMinutes(50), 'cash', 10000);
+        $secondBooking = $this->createDriverBooking($trip, $passengerTwo, $acceptedStatus, $notCheckedStatus, 'DRV-5002', now()->subMinutes(40), 'cash', 10000);
+        $thirdBooking = $this->createDriverBooking($trip, $passengerThree, $acceptedStatus, $notCheckedStatus, 'DRV-5003', now()->subMinutes(30), 'cash', 10000);
+        $canceledBooking = $this->createDriverBooking($trip, $passengerCanceled, $canceledStatus, $notCheckedStatus, 'DRV-5004', now()->subMinutes(20), 'cash', 10000);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/complete', [
+            'notes' => 'تم الوصول وإنهاء الرحلة',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.classification.key', 'completed')
+            ->assertJsonPath('data.trip_details.commission.gross_revenue_amount', 30000)
+            ->assertJsonPath('data.trip_details.commission.commission_amount', 3000)
+            ->assertJsonPath('data.trip_details.commission.net_revenue_amount', 27000)
+            ->assertJsonPath('data.trip_details.completion.mode', 'driver');
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'status_id' => TripStatus::where('status_key', TripStatus::COMPLETED)->value('status_id'),
+            'gross_revenue_amount' => 30000,
+            'commission_amount' => 3000,
+            'net_revenue_amount' => 27000,
+        ]);
+
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 2000,
+        ]);
+
+        $this->assertDatabaseHas('wallet_transactions', [
+            'wallet_id' => $driver->wallet->wallet_id,
+            'transaction_type' => 'commission',
+            'amount' => 3000,
+            'status' => 'completed',
+        ]);
+
+        $this->assertDatabaseHas('receipts', [
+            'owner_user_id' => $driver->user_id,
+            'related_trip_id' => $trip->trip_id,
+            'receipt_type' => 'driver_trip_settlement',
+            'gross_amount' => 30000,
+            'commission_amount' => 3000,
+            'net_amount' => 27000,
+        ]);
+
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $firstBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $secondBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $thirdBooking->booking_id,
+            'status_id' => $completedBookingStatus->status_id,
+        ]);
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $canceledBooking->booking_id,
+            'status_id' => $canceledStatus->status_id,
+        ]);
+
+        $this->assertDatabaseHas('payments', [
+            'booking_id' => $firstBooking->booking_id,
+            'payment_status' => 'paid',
+        ]);
+    }
+
+    public function test_system_can_auto_complete_trip_and_set_auto_completed_status(): void
+    {
+        $driver = $this->createDriverUser();
+        $driver->wallet()->update(['balance' => 5000]);
+
+        [, $active] = $this->seedTripStatuses();
+        [, $acceptedStatus] = $this->seedBookingStatuses();
+        [$notCheckedStatus] = $this->seedAttendanceStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+        $autoCompletedStatus = TripStatus::updateOrCreate(['status_key' => TripStatus::AUTO_COMPLETED], [
+            'status_key' => TripStatus::AUTO_COMPLETED,
+            'status_name' => 'منتهية تلقائياً',
+            'description' => 'Auto completed',
+            'is_final' => true,
+            'display_order' => 5,
+            'is_active' => true,
+        ]);
+
+        $commissionRate = CommissionRate::create([
+            'percentage' => 10,
+            'effective_from' => now()->subDay(),
+            'is_active' => true,
+            'created_by' => $driver->user_id,
+        ]);
+
+        $trip = $this->createTrip($driver, $active->status_id, now()->subHours(4), $damascus, $homs);
+        $trip->update([
+            'commission_rate_id' => $commissionRate->commission_rate_id,
+            'commission_percentage' => 10,
+            'max_commission_amount' => 4000,
+        ]);
+
+        $passenger = $this->createPassengerUser('auto-complete-passenger@example.com', '0999999808');
+        $booking = $this->createDriverBooking($trip, $passenger, $acceptedStatus, $notCheckedStatus, 'DRV-7001', now()->subHours(3), 'cash', 10000);
+
+        $this->artisan('trips:auto-complete')
+            ->expectsOutputToContain('Auto-completed trips: 1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('trips', [
+            'trip_id' => $trip->trip_id,
+            'status_id' => $autoCompletedStatus->status_id,
+            'gross_revenue_amount' => 10000,
+            'commission_amount' => 1000,
+            'net_revenue_amount' => 9000,
+            'completion_mode' => 'system',
+            'completion_reason' => 'system_timeout_after_expected_arrival',
+        ]);
+
+        $this->assertDatabaseHas('bookings', [
+            'booking_id' => $booking->booking_id,
+            'status_id' => BookingStatus::where('status_key', 'completed')->value('status_id'),
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'notification_type' => 'trip_auto_completed',
+            'reference_id' => $trip->trip_id,
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'notification_type' => 'driver_trip_auto_completed',
+            'reference_id' => $trip->trip_id,
+        ]);
+
+        $this->assertDatabaseHas('wallets', [
+            'user_id' => $driver->user_id,
+            'balance' => 4000,
+        ]);
     }
 
     public function test_driver_can_list_all_wallet_transactions_as_cards(): void
@@ -837,5 +1212,39 @@ class DriverTripApiTest extends TestCase
         ]);
 
         return $booking;
+    }
+
+    private function fakeGovernorateResolver(Governorate $governorate): void
+    {
+        $resolver = new class($governorate) extends GovernorateResolverService {
+            public function __construct(private Governorate $governorate)
+            {
+            }
+
+            public function enrichPointsWithAddresses(array $orderedPoints): array
+            {
+                return collect($orderedPoints)->map(function (array $point) {
+                    $point['address'] = 'عنوان محسوب تلقائياً';
+                    return $point;
+                })->all();
+            }
+
+            public function resolveGovernorateIdFromPoint(array $point): int
+            {
+                return (int) $this->governorate->governorate_id;
+            }
+
+            public function resolveTripGovernorates(array $orderedPoints): array
+            {
+                return [
+                    'start_governorate_id' => (int) $this->governorate->governorate_id,
+                    'end_governorate_id' => (int) $this->governorate->governorate_id,
+                    'start_governorate' => $this->governorate,
+                    'end_governorate' => $this->governorate,
+                ];
+            }
+        };
+
+        $this->app->instance(GovernorateResolverService::class, $resolver);
     }
 }

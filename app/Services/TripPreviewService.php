@@ -10,7 +10,8 @@ class TripPreviewService
     public function __construct(
         private readonly RouteService $routeService,
         private readonly PriceCalculatorService $priceCalculatorService,
-        private readonly GovernorateResolverService $governorateResolverService
+        private readonly GovernorateResolverService $governorateResolverService,
+        private readonly CommissionRateService $commissionRateService
     ) {
     }
 
@@ -32,12 +33,26 @@ class TripPreviewService
         $systemCalculatedPrice = $this->priceCalculatorService->calculateSystemPrice(
             (float) $route['estimated_distance_km'],
         );
+        $commissionSnapshot = $this->commissionRateService->ensureDriverCanCoverTripCommission(
+            $actor,
+            (bool) ($data['allow_shared'] ?? false),
+            (bool) ($data['allow_private'] ?? false),
+            (int) $data['total_seats'],
+            ! empty($data['allow_shared']) ? (float) $data['shared_price'] : null,
+            ! empty($data['allow_private']) ? (float) $data['private_price'] : null
+        );
 
         return [
             'estimated_distance_km' => $route['estimated_distance_km'],
             'estimated_duration_minutes' => $route['estimated_duration_minutes'],
             'route_polyline' => $route['polyline'],
             'system_calculated_price' => $systemCalculatedPrice,
+            'commission' => [
+                'percentage' => $commissionSnapshot['commission_percentage'],
+                'max_potential_revenue' => $commissionSnapshot['max_potential_revenue'],
+                'max_commission_amount' => $commissionSnapshot['max_commission_amount'],
+                'wallet_balance' => $commissionSnapshot['wallet_balance'],
+            ],
             'shared_price_range' => ! empty($data['allow_shared'])
                 ? $this->buildSharedPriceRange($systemCalculatedPrice, (int) $vehicle->seat_capacity)
                 : null,

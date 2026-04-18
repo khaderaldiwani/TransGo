@@ -11,14 +11,17 @@ class CommissionRate extends Model
 
     protected $fillable = [
         'percentage',
+        'previous_percentage',
         'effective_from',
         'effective_to',
         'is_active',
+        'change_reason',
         'created_by',
     ];
 
     protected $casts = [
         'percentage' => 'decimal:2',
+        'previous_percentage' => 'decimal:2',
         'effective_from' => 'datetime',
         'effective_to' => 'datetime',
         'is_active' => 'boolean',
@@ -35,5 +38,10 @@ class CommissionRate extends Model
     public function receipts()
     {
         return $this->hasMany(Receipt::class, 'commission_rate_id', 'commission_rate_id');
+    }
+
+    public function trips()
+    {
+        return $this->hasMany(Trip::class, 'commission_rate_id', 'commission_rate_id');
     }
 }

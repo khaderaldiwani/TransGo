@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1\Driver;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Driver\CancelTripRequest;
+use App\Http\Requests\Driver\CompleteTripRequest;
 use App\Http\Requests\Driver\PreviewTripRequest;
+use App\Http\Requests\Driver\StartTripRequest;
 use App\Http\Requests\Driver\StoreTripRequest;
 use App\Http\Requests\Driver\UpdateBookingAttendanceRequest;
 use App\Http\Requests\Driver\UpdateBookingStatusRequest;
@@ -280,6 +282,48 @@ class TripController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع أثناء إلغاء الرحلة.', 500);
+        }
+    }
+    public function complete(CompleteTripRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم إنهاء الرحلة واحتساب العمولة بنجاح.',
+                200,
+                $this->driverTripManagementService->completeTrip(
+                    $id,
+                    $request->user(),
+                    $request->validated('notes'),
+                    $request->validated('latitude'),
+                    $request->validated('longitude')
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء إنهاء الرحلة.', 500);
+        }
+    }
+    public function start(StartTripRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم بدء الرحلة بنجاح.',
+                200,
+                $this->driverTripManagementService->startTrip(
+                    $id,
+                    $request->user(),
+                    $request->validated('notes')
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء بدء الرحلة.', 500);
         }
     }
 }

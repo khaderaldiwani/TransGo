@@ -280,7 +280,7 @@ class BookingService
     {
         $statusKey = $trip->status?->status_key;
 
-        if (in_array($statusKey, [TripStatus::CANCELED, TripStatus::COMPLETED], true)) {
+        if (in_array($statusKey, [TripStatus::CANCELED, TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
             throw ValidationException::withMessages([
                 'trip_id' => 'لا يمكن الحجز على رحلة ملغاة أو منجزة.',
             ]);
@@ -846,7 +846,7 @@ class BookingService
             ]);
         }
 
-        if (in_array($trip->status?->status_key, [TripStatus::CANCELED, TripStatus::COMPLETED], true)) {
+        if (in_array($trip->status?->status_key, [TripStatus::CANCELED, TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
             throw ValidationException::withMessages([
                 'trip_id' => 'لا يمكن إلغاء الحجز لأن الرحلة أصبحت منتهية أو ملغاة.',
             ]);

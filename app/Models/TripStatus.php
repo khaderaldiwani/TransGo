@@ -9,6 +9,7 @@ class TripStatus extends Model
     public const PENDING = 'pending';
     public const ACTIVE = 'active';
     public const COMPLETED = 'completed';
+    public const AUTO_COMPLETED = 'auto_completed';
     public const CANCELED = 'canceled';
 
     protected $table = 'trip_statuses';

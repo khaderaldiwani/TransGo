@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
+use App\Http\Controllers\Api\V1\Admin\CommissionRateController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
@@ -41,6 +42,7 @@ Route::prefix('v1/auth')->group(function () {
 
 
 Route::prefix('v1/admin')->group(function () {
+    //auth
     Route::post('/login', [AuthAdminController::class, 'login'])->middleware('throttle:login');
  
     Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
@@ -52,7 +54,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::patch('/employees/{id}/disable', [EmployeeController::class, 'disable']);
         Route::patch('/employees/{id}/enable', [EmployeeController::class, 'enable']);
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
-
+        
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
@@ -67,12 +69,16 @@ Route::prefix('v1/admin')->group(function () {
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
         //wallet top-up history for both drivers and passengers
         Route::post('/drivers/{id}/wallet/top-up', [DriverController::class, 'topUpWallet']);
-        Route::get('/wallet-topups', [DriverController::class, 'walletTopUps']);
         Route::get('/driver-wallet-topups', [DriverController::class, 'driverWalletTopUps']);
-      
         Route::get('/passenger-wallet-topups', [PassengerController::class, 'walletTopUps']);
         Route::post('/passengers/{id}/wallet/top-up', [PassengerController::class, 'topUpWallet']);
-      
+        Route::get('/wallet-topups', [DriverController::class, 'walletTopUps']);
+        
+        //commission
+        Route::get('/commission-rates', [CommissionRateController::class, 'index']);
+        Route::get('/commission-rates/current', [CommissionRateController::class, 'current']);
+        Route::post('/commission-rates', [CommissionRateController::class, 'store']);
+
     });
 
     Route::middleware(['auth:sanctum', 'active', 'role:admin,employee'])->group(function () {
@@ -122,7 +128,9 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/trips/completed', [TripController::class, 'completed']);
         Route::get('/trips/canceled', [TripController::class, 'canceled']);
         Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
+        Route::post('/trips/{id}/start', [TripController::class, 'start'])->whereNumber('id');
         Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');
+        Route::post('/trips/{id}/complete', [TripController::class, 'complete'])->whereNumber('id');
     
         
         //bookings

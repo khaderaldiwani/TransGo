@@ -16,7 +16,8 @@ class TripService
     public function __construct(
         private readonly RouteService $routeService,
         private readonly PriceCalculatorService $priceCalculatorService,
-        private readonly GovernorateResolverService $governorateResolverService
+        private readonly GovernorateResolverService $governorateResolverService,
+        private readonly CommissionRateService $commissionRateService
     ) {
     }
 
@@ -49,6 +50,15 @@ class TripService
 
         $this->validatePriceRange($data, $systemCalculatedPrice, (int) $vehicle->seat_capacity);
 
+        $commissionSnapshot = $this->commissionRateService->ensureDriverCanCoverTripCommission(
+            $actor,
+            (bool) $data['allow_shared'],
+            (bool) $data['allow_private'],
+            (int) $data['total_seats'],
+            ! empty($data['allow_shared']) ? (float) $data['shared_price'] : null,
+            ! empty($data['allow_private']) ? (float) $data['private_price'] : null
+        );
+
         $pendingStatus = TripStatus::query()
             ->where('status_key', TripStatus::PENDING)
             ->where('is_active', true)
@@ -58,7 +68,7 @@ class TripService
             throw new RuntimeException('Pending trip status not found. Please seed trip statuses first.');
         }
 
-        return DB::transaction(function () use ($data, $driverProfile, $route, $enrichedPoints, $resolvedGovernorates, $systemCalculatedPrice, $pendingStatus) {
+        return DB::transaction(function () use ($data, $driverProfile, $route, $enrichedPoints, $resolvedGovernorates, $systemCalculatedPrice, $pendingStatus, $commissionSnapshot) {
             $trip = Trip::create([
                 'driver_id' => $driverProfile->user_id,
                 'start_governorate_id' => $resolvedGovernorates['start_governorate_id'],
@@ -76,6 +86,9 @@ class TripService
                 'system_calculated_price' => $systemCalculatedPrice,
                 'route_polyline' => $route['polyline'],
                 'status_id' => $pendingStatus->status_id,
+                'commission_rate_id' => $commissionSnapshot['commission_rate_id'],
+                'commission_percentage' => $commissionSnapshot['commission_percentage'],
+                'max_commission_amount' => $commissionSnapshot['max_commission_amount'],
                 'created_at' => now(),
             ]);
 

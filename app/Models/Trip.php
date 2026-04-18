@@ -31,7 +31,20 @@ class Trip extends Model
         'system_calculated_price',
         'route_polyline',
         'status_id',
+        'commission_rate_id',
+        'commission_percentage',
+        'max_commission_amount',
+        'gross_revenue_amount',
+        'commission_amount',
+        'net_revenue_amount',
         'created_at',
+        'completed_at',
+        'actual_start_time',
+        'completion_mode',
+        'completion_reason',
+        'tracking_stopped_at',
+        'completion_latitude',
+        'completion_longitude',
     ];
 
     protected $casts = [
@@ -52,7 +65,18 @@ class Trip extends Model
         'system_calculated_price' => 'decimal:2',
         'route_polyline' => 'string',
         'status_id' => 'integer',
+        'commission_rate_id' => 'integer',
+        'commission_percentage' => 'decimal:2',
+        'max_commission_amount' => 'decimal:2',
+        'gross_revenue_amount' => 'decimal:2',
+        'commission_amount' => 'decimal:2',
+        'net_revenue_amount' => 'decimal:2',
         'created_at' => 'datetime',
+        'completed_at' => 'datetime',
+        'actual_start_time' => 'datetime',
+        'tracking_stopped_at' => 'datetime',
+        'completion_latitude' => 'decimal:7',
+        'completion_longitude' => 'decimal:7',
     ];
 
     public function driver()
@@ -73,6 +97,11 @@ class Trip extends Model
     public function status()
     {
         return $this->belongsTo(TripStatus::class, 'status_id', 'status_id');
+    }
+
+    public function commissionRate()
+    {
+        return $this->belongsTo(CommissionRate::class, 'commission_rate_id', 'commission_rate_id');
     }
 
     public function points()

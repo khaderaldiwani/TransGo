@@ -203,6 +203,18 @@ class DriverBookingManagementService
             ]);
         }
 
+        $currentAttendanceKey = $booking->attendanceStatus?->status_key;
+
+        if ($currentAttendanceKey === $attendanceKey) {
+            return $this->showBookingDetails($booking->booking_id, $actor);
+        }
+
+        if (in_array($currentAttendanceKey, ['present', 'absent'], true)) {
+            throw ValidationException::withMessages([
+                'attendance_status' => 'تم تسجيل حضور أو غياب هذا الراكب مسبقاً، ولا يمكن تعديله مرة أخرى.',
+            ]);
+        }
+
         return DB::transaction(function () use ($booking, $actor, $attendanceKey, $notes) {
             $attendanceStatus = $this->resolveAttendanceStatus($attendanceKey);
             $penaltyAmount = 0.0;
@@ -210,6 +222,13 @@ class DriverBookingManagementService
 
             if ($attendanceKey === 'absent') {
                 [$penaltyAmount, $ratingPenalty] = $this->applyNoShowConsequences($booking, $actor, $notes);
+            } else {
+                $this->applyPassengerRatingBonus(
+                    $booking->passenger,
+                    $booking,
+                    0.1,
+                    'زيادة التقييم بسبب حضور الراكب إلى نقطة الالتقاء.'
+                );
             }
 
             BookingAttendance::updateOrCreate(
@@ -771,7 +790,7 @@ class DriverBookingManagementService
 
     private function ensureTripCanAcceptBooking(Trip $trip, Booking $booking): void
     {
-        if (in_array($trip->status?->status_key, [TripStatus::CANCELED, TripStatus::COMPLETED], true)) {
+        if (in_array($trip->status?->status_key, [TripStatus::CANCELED, TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
             throw ValidationException::withMessages([
                 'status' => 'لا يمكن قبول الحجز لأن الرحلة لم تعد متاحة.',
             ]);
@@ -949,6 +968,29 @@ class DriverBookingManagementService
             'user_id' => $passenger->user_id,
             'booking_id' => $booking->booking_id,
             'rating_change' => -1 * abs($amount),
+            'reason' => $reason,
+            'created_at' => now(),
+        ]);
+    }
+
+    private function applyPassengerRatingBonus(?User $passenger, Booking $booking, float $amount, string $reason): void
+    {
+        if (! $passenger) {
+            return;
+        }
+
+        $currentRating = (float) ($passenger->rating ?? User::DEFAULT_RATING);
+        $newRating = min(User::MAX_RATING, round($currentRating + $amount, 2));
+
+        $passenger->update([
+            'rating' => $newRating,
+            'rating_last_updated' => now(),
+        ]);
+
+        DB::table('passenger_rating_logs')->insert([
+            'user_id' => $passenger->user_id,
+            'booking_id' => $booking->booking_id,
+            'rating_change' => abs($amount),
             'reason' => $reason,
             'created_at' => now(),
         ]);

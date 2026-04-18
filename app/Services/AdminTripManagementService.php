@@ -130,7 +130,7 @@ class AdminTripManagementService
         }
 
         $statusKey = data_get($trip, 'status.status_key');
-        if (in_array($statusKey, [TripStatus::COMPLETED, TripStatus::CANCELED], true)) {
+        if (in_array($statusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
             throw new RuntimeException('لا يمكن إلغاء رحلة منتهية أو ملغاة مسبقاً.', 422);
         }
 
@@ -241,11 +241,19 @@ class AdminTripManagementService
         }
 
         if ($filters['status'] !== '') {
-            $statusId = TripStatus::query()
-                ->where('status_key', $filters['status'])
-                ->value('status_id');
+            if ($filters['status'] === TripStatus::COMPLETED) {
+                $statusIds = TripStatus::query()
+                    ->whereIn('status_key', [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED])
+                    ->pluck('status_id');
 
-            $query->where('status_id', $statusId ?? 0);
+                $query->whereIn('status_id', $statusIds->all());
+            } else {
+                $statusId = TripStatus::query()
+                    ->where('status_key', $filters['status'])
+                    ->value('status_id');
+
+                $query->where('status_id', $statusId ?? 0);
+            }
         }
 
         return $this->applyNonStatusFilters($query, $filters);
@@ -571,6 +579,7 @@ class AdminTripManagementService
                 TripStatus::PENDING => '#f59e0b',
                 TripStatus::ACTIVE => '#0ea5e9',
                 TripStatus::COMPLETED => '#10b981',
+                TripStatus::AUTO_COMPLETED => '#14b8a6',
                 TripStatus::CANCELED => '#ef4444',
                 default => '#64748b',
             },
@@ -623,7 +632,7 @@ class AdminTripManagementService
             'all' => Trip::count(),
             'pending' => (int) ($statusCounts[TripStatus::PENDING] ?? 0),
             'active' => (int) ($statusCounts[TripStatus::ACTIVE] ?? 0),
-            'completed' => (int) ($statusCounts[TripStatus::COMPLETED] ?? 0),
+            'completed' => (int) (($statusCounts[TripStatus::COMPLETED] ?? 0) + ($statusCounts[TripStatus::AUTO_COMPLETED] ?? 0)),
             'canceled' => (int) ($statusCounts[TripStatus::CANCELED] ?? 0),
             'delayed' => $delayedCount,
         ];

@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('commission_rates', function (Blueprint $table) {
             $table->id('commission_rate_id');
             $table->decimal('percentage', 5, 2);
-            $table->timestamp('effective_from');
-            $table->timestamp('effective_to')->nullable();
+            $table->dateTime('effective_from', 6);
+            $table->dateTime('effective_to', 6)->nullable();
             $table->boolean('is_active')->default(true);
             $table->foreignId('created_by')
                 ->nullable()
