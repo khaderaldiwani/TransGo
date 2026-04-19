@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\AuthAdminController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\CommissionRateController;
+use App\Http\Controllers\Api\V1\Admin\ComplaintController as AdminComplaintController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\ResetPasswordController;
+use App\Http\Controllers\Api\V1\ComplaintController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
@@ -89,7 +91,12 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/bookings', [AdminBookingController::class, 'index']);
         Route::get('/bookings/{bookingId}', [AdminBookingController::class, 'show']);
         Route::patch('/bookings/{bookingId}/status', [AdminBookingController::class, 'updateStatus']);
-     //   Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+        
+        // Complaints
+        Route::get('/complaints', [AdminComplaintController::class, 'index']);
+        Route::get('/complaints/{complaintId}', [AdminComplaintController::class, 'show'])->whereNumber('complaintId');
+        Route::patch('/complaints/{complaintId}/status', [AdminComplaintController::class, 'updateStatus']);
+        Route::get('/complaints/{complaintId}/audit', [AdminComplaintController::class, 'auditTrail'])->whereNumber('complaintId');
         
         
     });
@@ -102,6 +109,10 @@ Route::prefix('v1/passenger')->group(function () {
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
+        
+        // Complaints
+        Route::post('/complaints', [ComplaintController::class, 'store']);
+        
        //receipts
         Route::get('/receipts', [PassengerReceiptController::class, 'index']);
         Route::get('/receipts/{id}', [PassengerReceiptController::class, 'show'])->whereNumber('id');
@@ -140,6 +151,10 @@ Route::prefix('v1/driver')->group(function () {
         Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
         Route::get('/trips/{id}/bookings', [TripController::class, 'tripBookings'])->whereNumber('id');
         Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
+        
+        // Complaints
+        Route::post('/complaints', [ComplaintController::class, 'store']);
+        
         //receipts
         Route::get('/receipts', [DriverReceiptController::class, 'index']);
         Route::get('/receipts/{id}', [DriverReceiptController::class, 'show'])->whereNumber('id');
