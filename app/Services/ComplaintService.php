@@ -137,6 +137,7 @@ class ComplaintService
      */
     public function updateComplaintStatus(int $complaintId, string $newStatus, ?string $notes, User $actor): array
     {
+        // only allowed in this range
         $allowedStatuses = ['new', 'in_progress', 'completed'];
 
         if (!in_array($newStatus, $allowedStatuses, true)) {
