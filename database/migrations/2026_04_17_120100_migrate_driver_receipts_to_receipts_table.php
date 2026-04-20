@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -12,13 +13,7 @@ return new class extends Migration
             return;
         }
 
-        Schema::table('wallet_transactions', function (Blueprint $table) {
-            try {
-                $table->dropForeign(['related_receipt_id']);
-            } catch (Throwable) {
-                // Ignore missing foreign key to support fresh and existing databases.
-            }
-        });
+        $this->dropWalletReceiptForeignIfExists();
 
         Schema::dropIfExists('driver_receipts');
 
@@ -36,12 +31,30 @@ return new class extends Migration
             return;
         }
 
+        $this->dropWalletReceiptForeignIfExists();
+    }
+
+    private function dropWalletReceiptForeignIfExists(): void
+    {
+        $databaseName = DB::getDatabaseName();
+
+        if (! $databaseName) {
+            return;
+        }
+
+        $constraint = DB::table('information_schema.TABLE_CONSTRAINTS')
+            ->where('CONSTRAINT_SCHEMA', $databaseName)
+            ->where('TABLE_NAME', 'wallet_transactions')
+            ->where('CONSTRAINT_TYPE', 'FOREIGN KEY')
+            ->where('CONSTRAINT_NAME', 'wallet_transactions_related_receipt_id_foreign')
+            ->exists();
+
+        if (! $constraint) {
+            return;
+        }
+
         Schema::table('wallet_transactions', function (Blueprint $table) {
-            try {
-                $table->dropForeign(['related_receipt_id']);
-            } catch (Throwable) {
-                // Ignore missing foreign key.
-            }
+            $table->dropForeign('wallet_transactions_related_receipt_id_foreign');
         });
     }
 };
