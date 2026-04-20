@@ -9,6 +9,7 @@ use App\Models\DriverProfile;
 use App\Models\Governorate;
 use App\Models\Role;
 use App\Models\Trip;
+use App\Models\TripLiveLocation;
 use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\Receipt;
@@ -394,6 +395,97 @@ class PassengerBookingApiTest extends TestCase
             ->assertJsonPath('data.wallet.recent_transactions.0.actor_name', 'Wallet Admin')
             ->assertJsonPath('data.wallet.recent_transactions.0.reason', 'استرداد للرحلة 105')
             ->assertJsonPath('data.wallet.recent_transactions.0.details_endpoint', '/api/v1/passenger/wallet/transactions/105');
+    }
+
+    public function test_passenger_can_track_driver_only_after_trip_starts(): void
+    {
+        [, $activeStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('tracking-passenger@example.com', '0980000014');
+        $trip = $this->createTrip($driver, $activeStatus->status_id, $damascus, $homs);
+
+        $trip->update([
+            'is_tracking_active' => true,
+            'tracking_started_at' => now()->subMinutes(10),
+            'actual_start_time' => now()->subMinutes(10),
+            'last_latitude' => 38.7005,
+            'last_longitude' => -120.6505,
+            'last_location_at' => now()->subSeconds(15),
+        ]);
+
+        Booking::create([
+            'booking_code' => 'TRK10001',
+            'trip_id' => $trip->trip_id,
+            'passenger_id' => $passenger->user_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'cash',
+            'total_amount' => 10000,
+            'status_id' => BookingStatus::where('status_key', 'accepted')->value('status_id'),
+            'confirmed_at' => now(),
+        ]);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $driver->user_id,
+            'latitude' => 38.6001,
+            'longitude' => -120.5001,
+            'recorded_at' => now()->subMinute(),
+        ]);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $driver->user_id,
+            'latitude' => 38.7005,
+            'longitude' => -120.6505,
+            'speed_kmh' => 42,
+            'heading' => 180,
+            'accuracy_meters' => 7,
+            'recorded_at' => now()->subSeconds(15),
+        ]);
+
+        Sanctum::actingAs($passenger);
+
+        $this->getJson('/api/v1/passenger/trips/'.$trip->trip_id.'/tracking?history_limit=10')
+            ->assertOk()
+            ->assertJsonPath('data.tracking_available', true)
+            ->assertJsonPath('data.tracking_endpoint', '/api/v1/passenger/trips/'.$trip->trip_id.'/tracking')
+            ->assertJsonPath('data.driver.full_name', $driver->full_name)
+            ->assertJsonPath('data.tracking.last_position.latitude', 38.7005)
+            ->assertJsonPath('data.tracking.history.count', 2);
+    }
+
+    public function test_passenger_tracking_returns_not_available_before_start(): void
+    {
+        [$pendingStatus] = $this->seedTripStatuses();
+        $this->seedBookingStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $driver = $this->createDriver();
+        $passenger = $this->createPassenger('tracking-pending@example.com', '0980000015');
+        $trip = $this->createTrip($driver, $pendingStatus->status_id, $damascus, $homs, now()->addHour());
+
+        Booking::create([
+            'booking_code' => 'TRK10002',
+            'trip_id' => $trip->trip_id,
+            'passenger_id' => $passenger->user_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'cash',
+            'total_amount' => 10000,
+            'status_id' => BookingStatus::where('status_key', 'accepted')->value('status_id'),
+            'confirmed_at' => now(),
+        ]);
+
+        Sanctum::actingAs($passenger);
+
+        $this->getJson('/api/v1/passenger/trips/'.$trip->trip_id.'/tracking')
+            ->assertOk()
+            ->assertJsonPath('data.tracking_available', false)
+            ->assertJsonPath('data.message', 'يتم إتاحة تتبع السائق بعد بدء الرحلة فقط.');
     }
 
     public function test_passenger_can_list_wallet_transactions_and_view_details(): void

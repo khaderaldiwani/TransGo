@@ -30,7 +30,8 @@ class DriverTripManagementService
         private readonly ReceiptService $receiptService,
         private readonly CommissionRateService $commissionRateService,
         private readonly AuditLogService $auditLogService,
-        private readonly WalletTransactionService $walletTransactionService
+        private readonly WalletTransactionService $walletTransactionService,
+        private readonly TripTrackingService $tripTrackingService
     ) {
     }
 
@@ -173,6 +174,8 @@ class DriverTripManagementService
                 'status_id' => $canceledTripStatus->status_id,
             ])->save();
 
+            $this->tripTrackingService->stopTracking($trip, now());
+
             foreach ($trip->bookings as $booking) {
                 $currentStatusKey = $booking->status?->status_key;
 
@@ -284,11 +287,14 @@ class DriverTripManagementService
 
         DB::transaction(function () use ($trip, $actor, $activeTripStatus, $notes) {
             $oldStatusId = $trip->status_id;
+            $startedAt = now();
 
             $trip->forceFill([
                 'status_id' => $activeTripStatus->status_id,
-                'actual_start_time' => now(),
+                'actual_start_time' => $startedAt,
             ])->save();
+
+            $this->tripTrackingService->activateTracking($trip, $startedAt);
 
             $this->auditLogService->log(
                 $actor,
@@ -298,10 +304,12 @@ class DriverTripManagementService
                 [
                     'status_id' => $oldStatusId,
                     'actual_start_time' => null,
+                    'is_tracking_active' => false,
                 ],
                 [
                     'status_id' => $activeTripStatus->status_id,
                     'actual_start_time' => $trip->actual_start_time?->toIso8601String(),
+                    'is_tracking_active' => true,
                     'notes' => $notes,
                 ],
                 "Trip {$trip->trip_id} started by {$actor->full_name}."
@@ -380,6 +388,8 @@ class DriverTripManagementService
                     $netRevenue
                 );
             }
+
+            $this->tripTrackingService->stopTracking($trip, $completedAt, $latitude, $longitude);
 
             $trip->forceFill([
                 'status_id' => $completedTripStatus->status_id,
@@ -467,8 +477,8 @@ class DriverTripManagementService
 
                 $this->markTripBookingsAsCompleted($trip, $completedBookingStatus, null, 'تم إغلاق الحجوزات عند الإنهاء التلقائي للرحلة.');
 
-                if ($commissionAmount > 0) {
-                    $driver = $trip->driver?->user ?? User::query()->findOrFail($driverUserId);
+            if ($commissionAmount > 0) {
+                $driver = $trip->driver?->user ?? User::query()->findOrFail($driverUserId);
 
                     $this->deductCompletedTripCommission(
                         $trip,
@@ -477,11 +487,13 @@ class DriverTripManagementService
                         $grossRevenue,
                         $commissionAmount,
                         $netRevenue
-                    );
-                }
+                );
+            }
 
-                $trip->forceFill([
-                    'status_id' => $autoCompletedTripStatus->status_id,
+            $this->tripTrackingService->stopTracking($trip, $completedAt);
+
+            $trip->forceFill([
+                'status_id' => $autoCompletedTripStatus->status_id,
                     'gross_revenue_amount' => $grossRevenue,
                     'commission_amount' => $commissionAmount,
                     'net_revenue_amount' => $netRevenue,
@@ -798,6 +810,21 @@ class DriverTripManagementService
                         'longitude' => $trip->completion_longitude !== null ? (float) $trip->completion_longitude : null,
                     ],
                 ],
+                'tracking' => [
+                    'is_tracking_active' => (bool) $trip->is_tracking_active,
+                    'tracking_started_at' => optional($trip->tracking_started_at)->toIso8601String(),
+                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
+                    'last_location_at' => optional($trip->last_location_at)->toIso8601String(),
+                    'last_position' => $trip->last_latitude !== null && $trip->last_longitude !== null
+                        ? [
+                            'latitude' => (float) $trip->last_latitude,
+                            'longitude' => (float) $trip->last_longitude,
+                            'speed_kmh' => $trip->last_speed_kmh !== null ? (float) $trip->last_speed_kmh : null,
+                            'heading' => $trip->last_heading !== null ? (float) $trip->last_heading : null,
+                            'accuracy_meters' => $trip->last_accuracy_meters !== null ? (float) $trip->last_accuracy_meters : null,
+                        ]
+                        : null,
+                ],
                 'vehicle' => [
                     'type' => $vehicle?->car_type,
                     'model' => $vehicle?->certified_agency,
@@ -817,6 +844,8 @@ class DriverTripManagementService
                 })->values(),
                 'bookings_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/bookings",
                 'attendance_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/attendance",
+                'tracking_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/tracking",
+                'location_update_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/location",
                 'start_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/start",
                 'complete_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/complete",
                 'cancel_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/cancel",

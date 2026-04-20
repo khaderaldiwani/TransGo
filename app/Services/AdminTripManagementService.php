@@ -17,6 +17,11 @@ use RuntimeException;
 
 class AdminTripManagementService
 {
+    public function __construct(
+        private readonly TripTrackingService $tripTrackingService
+    ) {
+    }
+
     public function listTrips(array $filters): array
     {
         $filters = $this->normalizeFilters($filters);
@@ -34,7 +39,12 @@ class AdminTripManagementService
                 'filters' => $filters,
                 'summary' => $this->summary(),
                 'items' => $trips,
-                
+                'pagination' => [
+                    'current_page' => 1,
+                    'per_page' => $trips->count(),
+                    'total' => $trips->count(),
+                    'last_page' => 1,
+                ],
             ];
         }
 
@@ -47,7 +57,12 @@ class AdminTripManagementService
             'items' => $paginator->getCollection()->map(
                 fn (Trip $trip) => $this->transformTripSummary($trip)
             )->values(),
-            
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+            ],
         ];
     }
 
@@ -93,6 +108,11 @@ class AdminTripManagementService
             ],
             'items' => $items,
         ];
+    }
+
+    public function getTripTracking(int $tripId, int $historyLimit = 200): array
+    {
+        return $this->tripTrackingService->getAdminTripTracking($tripId, $historyLimit);
     }
 
     public function delayedTrips(array $filters): array
@@ -331,6 +351,7 @@ class AdminTripManagementService
     private function transformTripDetails(Trip $trip): array
     {
         $meta = $this->buildTripMeta($trip);
+        $tracking = $this->tripTrackingService->buildTrackingSnapshot($trip);
         $vehicle = $trip->driver?->vehicles->first();
         $driver=$trip->driver->first();
         $routePoints = $trip->points->values();
@@ -435,7 +456,12 @@ class AdminTripManagementService
             'monitoring' => [
                 'is_delayed' => $meta['delay']['is_delayed'],
                 'delay_minutes' => $meta['delay']['minutes'],
+                'is_tracking_active' => $tracking['is_tracking_active'],
+                'has_live_location' => $tracking['has_live_location'],
+                'last_location_at' => $tracking['last_location_at'],
+                'current_position' => $tracking['last_position'],
                 'active_tracking_endpoint' => '/api/v1/admin/trips/tracking/active',
+                'trip_tracking_endpoint' => "/api/v1/admin/trips/{$trip->trip_id}/tracking",
             ],
             'actions' => [
                 'cancel_endpoint' => "/api/v1/admin/trips/{$trip->trip_id}/cancel",
@@ -446,6 +472,7 @@ class AdminTripManagementService
     private function transformTrackingTrip(Trip $trip): array
     {
         $meta = $this->buildTripMeta($trip);
+        $tracking = $this->tripTrackingService->buildTrackingSnapshot($trip);
 
         return [
             'trip_id' => $trip->trip_id,
@@ -455,7 +482,10 @@ class AdminTripManagementService
             'expected_arrival_at' => $meta['expected_arrival_at'],
             'delay' => $meta['delay'],
             'progress_percent' => $meta['progress_percent'],
-            'current_position' => $meta['current_position'],
+            'is_tracking_active' => $tracking['is_tracking_active'],
+            'has_live_location' => $tracking['has_live_location'],
+            'last_location_at' => $tracking['last_location_at'],
+            'current_position' => $tracking['last_position'],
             'route' => [
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
@@ -467,6 +497,7 @@ class AdminTripManagementService
                     'longitude' => (float) $point->longitude,
                 ])->values(),
             ],
+            'tracking_endpoint' => "/api/v1/admin/trips/{$trip->trip_id}/tracking",
         ];
     }
 

@@ -5,16 +5,20 @@ namespace App\Http\Controllers\Api\V1\Passenger;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Passenger\CancelBookingRequest;
 use App\Http\Requests\Passenger\CreateBookingRequest;
+use App\Http\Requests\Passenger\TripTrackingQueryRequest;
 use App\Http\Resources\ApiResponse;
 use App\Services\BookingService;
+use App\Services\PassengerTripTrackingService;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Throwable;
 
 class BookingController extends Controller
 {
-    public function __construct(protected BookingService $bookingService)
-    {
+    public function __construct(
+        protected BookingService $bookingService,
+        protected PassengerTripTrackingService $passengerTripTrackingService
+    ) {
     }
 
     public function store(CreateBookingRequest $request)
@@ -42,6 +46,27 @@ class BookingController extends Controller
             );
 
             return ApiResponse::success('تم إلغاء الحجز بنجاح.', 200, $result);
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('خطأ في صحة البيانات.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
+
+    public function tracking(TripTrackingQueryRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب بيانات تتبع الرحلة للراكب بنجاح.',
+                200,
+                $this->passengerTripTrackingService->getTripTracking(
+                    $id,
+                    $request->user(),
+                    (int) ($request->validated()['history_limit'] ?? 100)
+                )
+            );
         } catch (ValidationException $e) {
             return ApiResponse::validation('خطأ في صحة البيانات.', $e->errors(), 422);
         } catch (RuntimeException $e) {

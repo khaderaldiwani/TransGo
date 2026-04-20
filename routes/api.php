@@ -85,14 +85,16 @@ Route::prefix('v1/admin')->group(function () {
 
     Route::middleware(['auth:sanctum', 'active', 'role:admin,employee'])->group(function () {
         Route::get('/trips', [AdminTripController::class, 'index']);
+        Route::get('/trips/tracking/active', [AdminTripController::class, 'activeTracking']);
+        Route::get('/trips/{id}/tracking', [AdminTripController::class, 'tracking'])->whereNumber('id');
         Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
         Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
         Route::get('/bookings', [AdminBookingController::class, 'index']);
         Route::get('/bookings/{bookingId}', [AdminBookingController::class, 'show']);
         Route::patch('/bookings/{bookingId}/status', [AdminBookingController::class, 'updateStatus']);
-        
-        // Complaints
+     
+         // Complaints
         Route::get('/complaints', [AdminComplaintController::class, 'index']);
         Route::get('/complaints/{complaintId}', [AdminComplaintController::class, 'show'])->whereNumber('complaintId');
         Route::patch('/complaints/{complaintId}/status', [AdminComplaintController::class, 'updateStatus']);
@@ -109,6 +111,7 @@ Route::prefix('v1/passenger')->group(function () {
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
+        Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
         
         // Complaints
         Route::post('/complaints', [ComplaintController::class, 'store']);
@@ -138,6 +141,8 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/trips/current', [TripController::class, 'current']);
         Route::get('/trips/completed', [TripController::class, 'completed']);
         Route::get('/trips/canceled', [TripController::class, 'canceled']);
+        Route::get('/trips/{id}/tracking', [TripController::class, 'tracking'])->whereNumber('id');
+        Route::post('/trips/{id}/location', [TripController::class, 'storeLocation'])->whereNumber('id');
         Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
         Route::post('/trips/{id}/start', [TripController::class, 'start'])->whereNumber('id');
         Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');

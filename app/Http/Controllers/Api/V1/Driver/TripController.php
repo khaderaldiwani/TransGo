@@ -7,12 +7,15 @@ use App\Http\Requests\Driver\CancelTripRequest;
 use App\Http\Requests\Driver\CompleteTripRequest;
 use App\Http\Requests\Driver\PreviewTripRequest;
 use App\Http\Requests\Driver\StartTripRequest;
+use App\Http\Requests\Driver\StoreTripLocationRequest;
 use App\Http\Requests\Driver\StoreTripRequest;
+use App\Http\Requests\Driver\TripTrackingQueryRequest;
 use App\Http\Requests\Driver\UpdateBookingAttendanceRequest;
 use App\Http\Requests\Driver\UpdateBookingStatusRequest;
 use App\Http\Resources\ApiResponse;
 use App\Services\DriverBookingManagementService;
 use App\Services\DriverTripManagementService;
+use App\Services\TripTrackingService;
 use App\Services\TripPreviewService;
 use App\Services\TripService;
 use Illuminate\Validation\ValidationException;
@@ -25,7 +28,8 @@ class TripController extends Controller
         protected TripService $tripService,
         protected TripPreviewService $tripPreviewService,
         protected DriverTripManagementService $driverTripManagementService,
-        protected DriverBookingManagementService $driverBookingManagementService
+        protected DriverBookingManagementService $driverBookingManagementService,
+        protected TripTrackingService $tripTrackingService
     ) {
     }
 
@@ -131,6 +135,48 @@ class TripController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب بيانات الحضور والغياب.', 500);
+        }
+    }
+
+    public function tracking(TripTrackingQueryRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب بيانات تتبع الرحلة بنجاح.',
+                200,
+                $this->tripTrackingService->getDriverTripTracking(
+                    $id,
+                    $request->user(),
+                    (int) ($request->validated()['history_limit'] ?? 100)
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب بيانات التتبع.', 500);
+        }
+    }
+
+    public function storeLocation(StoreTripLocationRequest $request, int $id)
+    {
+        try {
+            return ApiResponse::success(
+                'تم تخزين موقع السائق اللحظي بنجاح.',
+                200,
+                $this->tripTrackingService->recordDriverLocation(
+                    $id,
+                    $request->user(),
+                    $request->validated()
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('Validation failed.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء تخزين موقع السائق.', 500);
         }
     }
 

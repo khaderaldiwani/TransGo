@@ -40,9 +40,17 @@ class Trip extends Model
         'created_at',
         'completed_at',
         'actual_start_time',
+        'is_tracking_active',
+        'tracking_started_at',
         'completion_mode',
         'completion_reason',
         'tracking_stopped_at',
+        'last_latitude',
+        'last_longitude',
+        'last_speed_kmh',
+        'last_heading',
+        'last_accuracy_meters',
+        'last_location_at',
         'completion_latitude',
         'completion_longitude',
     ];
@@ -74,7 +82,15 @@ class Trip extends Model
         'created_at' => 'datetime',
         'completed_at' => 'datetime',
         'actual_start_time' => 'datetime',
+        'is_tracking_active' => 'boolean',
+        'tracking_started_at' => 'datetime',
         'tracking_stopped_at' => 'datetime',
+        'last_latitude' => 'decimal:7',
+        'last_longitude' => 'decimal:7',
+        'last_speed_kmh' => 'decimal:2',
+        'last_heading' => 'decimal:2',
+        'last_accuracy_meters' => 'decimal:2',
+        'last_location_at' => 'datetime',
         'completion_latitude' => 'decimal:7',
         'completion_longitude' => 'decimal:7',
     ];
@@ -122,5 +138,10 @@ class Trip extends Model
     public function complaints()
     {
         return $this->hasMany(Complaint::class, 'related_trip_id', 'trip_id');
+    }
+
+    public function liveLocations()
+    {
+        return $this->hasMany(TripLiveLocation::class, 'trip_id', 'trip_id');
     }
 }

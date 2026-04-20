@@ -12,6 +12,7 @@ use App\Models\Governorate;
 use App\Models\Payment;
 use App\Models\Role;
 use App\Models\Trip;
+use App\Models\TripLiveLocation;
 use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\User;
@@ -238,6 +239,76 @@ class AdminTripApiTest extends TestCase
 
         $this->assertDatabaseCount('user_notifications', 4);
         $this->assertNotNull($employee);
+    }
+
+    public function test_admin_can_track_active_trips_with_real_live_locations(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin-tracking@example.com');
+        $activeStatus = $this->createTripStatus(TripStatus::ACTIVE, 'نشطة');
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTripScenario([
+            'driver_name' => 'سائق التتبع',
+            'status_id' => $activeStatus->status_id,
+            'start_governorate_id' => $damascus->governorate_id,
+            'end_governorate_id' => $homs->governorate_id,
+            'departure_time' => now()->subMinutes(40),
+            'estimated_duration_minutes' => 90,
+        ]);
+
+        $trip->update([
+            'is_tracking_active' => true,
+            'tracking_started_at' => now()->subMinutes(35),
+            'last_latitude' => 33.8111000,
+            'last_longitude' => 36.5111000,
+            'last_speed_kmh' => 61.2,
+            'last_heading' => 120,
+            'last_accuracy_meters' => 5.5,
+            'last_location_at' => now()->subSeconds(15),
+        ]);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $trip->driver_id,
+            'latitude' => 33.7001000,
+            'longitude' => 36.4001000,
+            'speed_kmh' => 50,
+            'heading' => 100,
+            'accuracy_meters' => 7,
+            'recorded_at' => now()->subMinute(),
+        ]);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $trip->driver_id,
+            'latitude' => 33.8111000,
+            'longitude' => 36.5111000,
+            'speed_kmh' => 61.2,
+            'heading' => 120,
+            'accuracy_meters' => 5.5,
+            'recorded_at' => now()->subSeconds(15),
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/admin/trips/tracking/active')
+            ->assertOk()
+            ->assertJsonPath('data.summary.active_count', 1)
+            ->assertJsonPath('data.items.0.trip_id', $trip->trip_id)
+            ->assertJsonPath('data.items.0.current_position.latitude', 33.8111)
+            ->assertJsonPath('data.items.0.has_live_location', true)
+            ->assertJsonPath('data.items.0.tracking_endpoint', '/api/v1/admin/trips/'.$trip->trip_id.'/tracking');
+
+        $this->getJson('/api/v1/admin/trips/'.$trip->trip_id)
+            ->assertOk()
+            ->assertJsonPath('data.monitoring.trip_tracking_endpoint', '/api/v1/admin/trips/'.$trip->trip_id.'/tracking')
+            ->assertJsonPath('data.monitoring.current_position.longitude', 36.5111);
+
+        $this->getJson('/api/v1/admin/trips/'.$trip->trip_id.'/tracking?history_limit=10')
+            ->assertOk()
+            ->assertJsonPath('data.tracking.history.count', 2)
+            ->assertJsonPath('data.tracking.last_position.latitude', 33.8111)
+            ->assertJsonPath('data.tracking.details_endpoint', '/api/v1/admin/trips/'.$trip->trip_id.'/tracking');
     }
 
     private function createBackofficeUser(string $roleName, string $fullName, string $email): User

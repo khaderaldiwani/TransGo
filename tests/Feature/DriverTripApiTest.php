@@ -14,6 +14,7 @@ use App\Models\Payment;
 use App\Models\Receipt;
 use App\Models\Role;
 use App\Models\Trip;
+use App\Models\TripLiveLocation;
 use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\User;
@@ -164,6 +165,65 @@ class DriverTripApiTest extends TestCase
             'notification_id' => $notificationId,
             'user_id' => $canceledPassenger->user_id,
         ]);
+    }
+
+    public function test_driver_can_store_live_locations_and_view_trip_tracking(): void
+    {
+        $driver = $this->createDriverUser();
+        [$pending] = $this->seedTripStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTrip($driver, $pending->status_id, now()->subMinutes(5), $damascus, $homs);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/start', [
+            'notes' => 'تم بدء الرحلة للتتبع اللحظي',
+        ])->assertOk();
+
+        $firstRecordedAt = now()->subSeconds(30);
+        $secondRecordedAt = now()->subSeconds(5);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/location', [
+            'latitude' => 33.6001000,
+            'longitude' => 36.3001000,
+            'speed_kmh' => 48.5,
+            'heading' => 90,
+            'accuracy_meters' => 7.3,
+            'recorded_at' => $firstRecordedAt->toIso8601String(),
+        ])->assertOk()
+            ->assertJsonPath('data.tracking.is_tracking_active', true)
+            ->assertJsonPath('data.tracking.history.count', 1);
+
+        $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/location', [
+            'latitude' => 33.7002000,
+            'longitude' => 36.4002000,
+            'speed_kmh' => 52.1,
+            'heading' => 110,
+            'accuracy_meters' => 6.1,
+            'recorded_at' => $secondRecordedAt->toIso8601String(),
+        ])->assertOk()
+            ->assertJsonPath('data.tracking.history.count', 2)
+            ->assertJsonPath('data.tracking.last_position.latitude', 33.7002)
+            ->assertJsonPath('data.tracking.location_update_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/location');
+
+        $this->assertSame(2, TripLiveLocation::query()->where('trip_id', $trip->trip_id)->count());
+
+        $freshTrip = $trip->fresh();
+        $this->assertTrue((bool) $freshTrip->is_tracking_active);
+        $this->assertEqualsWithDelta(33.7002, (float) $freshTrip->last_latitude, 0.000001);
+        $this->assertEqualsWithDelta(36.4002, (float) $freshTrip->last_longitude, 0.000001);
+
+        $this->getJson('/api/v1/driver/trips/'.$trip->trip_id)
+            ->assertOk()
+            ->assertJsonPath('data.trip_details.tracking_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/tracking')
+            ->assertJsonPath('data.trip_details.location_update_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/location');
+
+        $this->getJson('/api/v1/driver/trips/'.$trip->trip_id.'/tracking?history_limit=10')
+            ->assertOk()
+            ->assertJsonPath('data.tracking.history.count', 2)
+            ->assertJsonPath('data.tracking.last_position.longitude', 36.4002)
+            ->assertJsonPath('data.tracking.details_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/tracking');
     }
 
     public function test_driver_can_list_grouped_bookings_and_view_booking_details(): void
