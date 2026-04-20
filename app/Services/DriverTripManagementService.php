@@ -26,6 +26,10 @@ use RuntimeException;
 
 class DriverTripManagementService
 {
+    private const COMPLETION_PROXIMITY_METERS = 500.0;
+    private const LIVE_TRACKING_FRESHNESS_MINUTES = 5;
+    private const AUTO_COMPLETE_TRACKING_STALE_MINUTES = 15;
+
     public function __construct(
         private readonly ReceiptService $receiptService,
         private readonly CommissionRateService $commissionRateService,
@@ -348,12 +352,12 @@ class DriverTripManagementService
             throw new RuntimeException('لا يمكن إنهاء الرحلة قبل وقت انطلاقها.', 422);
         }
 
-        $this->ensureDriverCompletionEligibility($trip, $latitude, $longitude);
+        $completionContext = $this->resolveManualCompletionEligibility($trip, $latitude, $longitude);
 
         $completedTripStatus = $this->resolveTripStatus(TripStatus::COMPLETED);
         $completedBookingStatus = $this->resolveBookingStatus('completed');
 
-        DB::transaction(function () use ($trip, $actor, $completedTripStatus, $completedBookingStatus, $notes, $latitude, $longitude) {
+        DB::transaction(function () use ($trip, $actor, $completedTripStatus, $completedBookingStatus, $notes, $completionContext) {
             $oldTripState = [
                 'status_id' => $trip->status_id,
                 'gross_revenue_amount' => $trip->gross_revenue_amount,
@@ -389,7 +393,12 @@ class DriverTripManagementService
                 );
             }
 
-            $this->tripTrackingService->stopTracking($trip, $completedAt, $latitude, $longitude);
+            $this->tripTrackingService->stopTracking(
+                $trip,
+                $completedAt,
+                $completionContext['latitude'],
+                $completionContext['longitude']
+            );
 
             $trip->forceFill([
                 'status_id' => $completedTripStatus->status_id,
@@ -398,10 +407,10 @@ class DriverTripManagementService
                 'net_revenue_amount' => $netRevenue,
                 'completed_at' => $completedAt,
                 'completion_mode' => 'driver',
-                'completion_reason' => $latitude !== null && $longitude !== null ? 'driver_near_destination' : 'driver_time_fallback',
+                'completion_reason' => $completionContext['reason'],
                 'tracking_stopped_at' => $completedAt,
-                'completion_latitude' => $latitude,
-                'completion_longitude' => $longitude,
+                'completion_latitude' => $completionContext['latitude'],
+                'completion_longitude' => $completionContext['longitude'],
             ])->save();
 
             $this->auditLogService->log(
@@ -417,7 +426,8 @@ class DriverTripManagementService
                     'net_revenue_amount' => $netRevenue,
                     'completed_at' => $completedAt->toIso8601String(),
                     'completion_mode' => 'driver',
-                    'completion_reason' => $latitude !== null && $longitude !== null ? 'driver_near_destination' : 'driver_time_fallback',
+                    'completion_reason' => $completionContext['reason'],
+                    'completion_source' => $completionContext['source'],
                 ],
                 "Trip {$trip->trip_id} completed by {$actor->full_name}."
             );
@@ -446,13 +456,21 @@ class DriverTripManagementService
                 'driver.user',
             ])
             ->get()
-            ->filter(fn (Trip $trip) => $this->shouldAutoCompleteTrip($trip))
+            ->map(fn (Trip $trip) => [
+                'trip' => $trip,
+                'context' => $this->resolveAutoCompletionContext($trip),
+            ])
+            ->filter(fn (array $item) => $item['context'] !== null)
             ->values();
 
         $completedTripIds = [];
 
-        foreach ($trips as $trip) {
-            DB::transaction(function () use ($trip, $autoCompletedTripStatus, $completedBookingStatus) {
+        foreach ($trips as $item) {
+            /** @var Trip $trip */
+            $trip = $item['trip'];
+            $completionContext = $item['context'];
+
+            DB::transaction(function () use ($trip, $autoCompletedTripStatus, $completedBookingStatus, $completionContext) {
                 $oldTripState = [
                     'status_id' => $trip->status_id,
                     'gross_revenue_amount' => $trip->gross_revenue_amount,
@@ -490,7 +508,12 @@ class DriverTripManagementService
                 );
             }
 
-            $this->tripTrackingService->stopTracking($trip, $completedAt);
+                $this->tripTrackingService->stopTracking(
+                    $trip,
+                    $completedAt,
+                    $completionContext['latitude'],
+                    $completionContext['longitude']
+                );
 
             $trip->forceFill([
                 'status_id' => $autoCompletedTripStatus->status_id,
@@ -499,8 +522,10 @@ class DriverTripManagementService
                     'net_revenue_amount' => $netRevenue,
                     'completed_at' => $completedAt,
                     'completion_mode' => 'system',
-                    'completion_reason' => 'system_timeout_after_expected_arrival',
+                    'completion_reason' => $completionContext['reason'],
                     'tracking_stopped_at' => $completedAt,
+                    'completion_latitude' => $completionContext['latitude'],
+                    'completion_longitude' => $completionContext['longitude'],
                 ])->save();
 
                 $this->auditLogService->log(
@@ -516,7 +541,8 @@ class DriverTripManagementService
                         'net_revenue_amount' => $netRevenue,
                         'completed_at' => $completedAt->toIso8601String(),
                         'completion_mode' => 'system',
-                        'completion_reason' => 'system_timeout_after_expected_arrival',
+                        'completion_reason' => $completionContext['reason'],
+                        'completion_source' => $completionContext['source'],
                     ],
                     "Trip {$trip->trip_id} auto-completed by system."
                 );
@@ -1021,6 +1047,139 @@ class DriverTripManagementService
         }
 
         return now()->greaterThanOrEqualTo($expectedArrival->copy()->addHours(2));
+    }
+
+    private function resolveManualCompletionEligibility(Trip $trip, ?float $latitude, ?float $longitude): array
+    {
+        $completionContext = $this->resolveDriverCompletionContext($trip, $latitude, $longitude);
+
+        if ($completionContext['source'] === 'time_fallback') {
+            $expectedArrival = $this->expectedArrival($trip);
+
+            if ($expectedArrival && now()->lt($expectedArrival)) {
+                throw ValidationException::withMessages([
+                    'latitude' => 'لا يمكن إنهاء الرحلة دون موقع فعلي قبل وقت الوصول المتوقع.',
+                ]);
+            }
+
+            return $completionContext;
+        }
+
+        $endPoint = $this->resolveTripEndPoint($trip);
+
+        if (! $endPoint) {
+            throw new RuntimeException('لا يمكن التحقق من نقطة نهاية الرحلة لعدم وجود نقطة وصول صالحة.', 422);
+        }
+
+        $distanceMeters = $this->calculateDistanceMeters(
+            $completionContext['latitude'],
+            $completionContext['longitude'],
+            (float) $endPoint->latitude,
+            (float) $endPoint->longitude
+        );
+
+        if ($distanceMeters > self::COMPLETION_PROXIMITY_METERS) {
+            throw ValidationException::withMessages([
+                'latitude' => 'لا يمكن إنهاء الرحلة لأن السائق ليس قريباً بما يكفي من نقطة النهاية.',
+            ]);
+        }
+
+        return $completionContext;
+    }
+
+    private function resolveAutoCompletionContext(Trip $trip): ?array
+    {
+        if (! $this->shouldAutoCompleteTrip($trip)) {
+            return null;
+        }
+
+        $endPoint = $this->resolveTripEndPoint($trip);
+        $snapshot = $this->resolveStoredTrackingLocation($trip);
+
+        if ($endPoint && $snapshot !== null) {
+            $distanceMeters = $this->calculateDistanceMeters(
+                $snapshot['latitude'],
+                $snapshot['longitude'],
+                (float) $endPoint->latitude,
+                (float) $endPoint->longitude
+            );
+
+            if ($distanceMeters <= self::COMPLETION_PROXIMITY_METERS) {
+                return [
+                    'source' => 'live_tracking',
+                    'reason' => 'system_timeout_near_destination_live_tracking',
+                    'latitude' => $snapshot['latitude'],
+                    'longitude' => $snapshot['longitude'],
+                ];
+            }
+        }
+
+        if ($snapshot !== null && $trip->last_location_at && Carbon::parse($trip->last_location_at)->lte(now()->subMinutes(self::AUTO_COMPLETE_TRACKING_STALE_MINUTES))) {
+            return [
+                'source' => 'tracking_stale',
+                'reason' => 'system_timeout_tracking_stale',
+                'latitude' => $snapshot['latitude'],
+                'longitude' => $snapshot['longitude'],
+            ];
+        }
+
+        return [
+            'source' => 'time_fallback',
+            'reason' => 'system_timeout_no_tracking_time_fallback',
+            'latitude' => $snapshot['latitude'] ?? null,
+            'longitude' => $snapshot['longitude'] ?? null,
+        ];
+    }
+
+    private function resolveDriverCompletionContext(Trip $trip, ?float $latitude, ?float $longitude): array
+    {
+        $snapshot = $this->resolveStoredTrackingLocation($trip);
+
+        if ($snapshot !== null && $this->isTrackingSnapshotFresh($trip)) {
+            return [
+                'source' => 'live_tracking',
+                'reason' => 'driver_near_destination_live_tracking',
+                'latitude' => $snapshot['latitude'],
+                'longitude' => $snapshot['longitude'],
+            ];
+        }
+
+        if ($latitude !== null && $longitude !== null) {
+            return [
+                'source' => 'request_gps',
+                'reason' => 'driver_near_destination_request_gps',
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+            ];
+        }
+
+        return [
+            'source' => 'time_fallback',
+            'reason' => 'driver_time_fallback',
+            'latitude' => $snapshot['latitude'] ?? null,
+            'longitude' => $snapshot['longitude'] ?? null,
+        ];
+    }
+
+    private function resolveStoredTrackingLocation(Trip $trip): ?array
+    {
+        if ($trip->last_latitude === null || $trip->last_longitude === null) {
+            return null;
+        }
+
+        return [
+            'latitude' => (float) $trip->last_latitude,
+            'longitude' => (float) $trip->last_longitude,
+        ];
+    }
+
+    private function isTrackingSnapshotFresh(Trip $trip): bool
+    {
+        if (! $trip->last_location_at) {
+            return false;
+        }
+
+        return Carbon::parse($trip->last_location_at)->gte(now()->subMinutes(self::LIVE_TRACKING_FRESHNESS_MINUTES));
     }
 
     private function resolveTripEndPoint(Trip $trip): mixed

@@ -548,6 +548,11 @@ class DriverTripApiTest extends TestCase
         $trip->update([
             'commission_rate_id' => $rate->commission_rate_id,
             'commission_percentage' => 10,
+            'is_tracking_active' => true,
+            'tracking_started_at' => now()->subHours(2),
+            'last_latitude' => 34.7308,
+            'last_longitude' => 36.7090,
+            'last_location_at' => now()->subMinute(),
         ]);
 
         $driver->wallet()->update(['balance' => 5000]);
@@ -563,8 +568,6 @@ class DriverTripApiTest extends TestCase
         Sanctum::actingAs($driver);
 
         $this->postJson('/api/v1/driver/trips/'.$trip->trip_id.'/complete', [
-            'latitude' => 34.7308,
-            'longitude' => 36.7090,
             'notes' => 'احتساب الإيراد الفعلي مع غائب إلكتروني',
         ])
             ->assertOk()
@@ -579,6 +582,7 @@ class DriverTripApiTest extends TestCase
             'gross_revenue_amount' => 20000,
             'commission_amount' => 2000,
             'net_revenue_amount' => 18000,
+            'completion_reason' => 'driver_near_destination_live_tracking',
         ]);
 
         $this->assertDatabaseHas('bookings', [
@@ -849,7 +853,7 @@ class DriverTripApiTest extends TestCase
             'commission_amount' => 1000,
             'net_revenue_amount' => 9000,
             'completion_mode' => 'system',
-            'completion_reason' => 'system_timeout_after_expected_arrival',
+            'completion_reason' => 'system_timeout_no_tracking_time_fallback',
         ]);
 
         $this->assertDatabaseHas('bookings', [
