@@ -175,6 +175,10 @@ class RatingAndHistoryApiTest extends TestCase
             ->assertJsonPath('data.total_ratings', 2)
             ->assertJsonPath('data.breakdown.1', 1)
             ->assertJsonPath('data.breakdown.5', 1)
+            ->assertJsonFragment([
+                'user_id' => $secondPassenger->user_id,
+                'phone' => $secondPassenger->phone,
+            ])
             ->assertJsonFragment(['comment' => 'Perfect service']);
     }
 
@@ -249,7 +253,12 @@ class RatingAndHistoryApiTest extends TestCase
             ->assertJsonPath('data.summary.breakdown.1', 2)
             ->assertJsonPath('data.summary.classification_counts.low', 2)
             ->assertJsonPath('data.summary.visible_ratings_count', 2)
-            ->assertJsonPath('data.items.0.rated_user_type', 'driver');
+            ->assertJsonPath('data.items.0.rated_user_type', 'driver')
+            ->assertJsonPath('data.items.0.rated_user.phone', $driver->phone)
+            ->assertJsonFragment([
+                'user_id' => $secondPassenger->user_id,
+                'phone' => $secondPassenger->phone,
+            ]);
 
         $this->getJson('/api/v1/admin/ratings?user_type=driver&user_id='.$driver->user_id)
             ->assertOk()

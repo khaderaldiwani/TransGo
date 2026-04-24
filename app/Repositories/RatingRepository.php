@@ -57,7 +57,7 @@ class RatingRepository
             ->all();
 
         $comments = (clone $reviews)
-            ->with(['passenger', 'booking.trip'])
+            ->with(['passenger.roles', 'booking.trip'])
             ->whereNotNull('comment')
             ->where('comment', '!=', '')
             ->orderByDesc('created_at')
@@ -91,7 +91,12 @@ class RatingRepository
     public function getAdminRatingAnalytics(array $filters): array
     {
         $reviews = DriverReview::query()
-            ->with(['driver', 'passenger', 'booking.trip'])
+            ->with([
+                'driver.roles',
+                'driver.driverProfile',
+                'passenger.roles',
+                'booking.trip',
+            ])
             ->where('rated_user_type', Role::ROLE_DRIVER);
 
         if (($filters['user_type'] ?? null) === Role::ROLE_PASSENGER) {
@@ -139,14 +144,8 @@ class RatingRepository
                     'trip_id' => $review->booking?->trip_id,
                     'user_type' => $filters['user_type'],
                     'rated_user_type' => $review->rated_user_type,
-                    'rated_user' => [
-                        'user_id' => $review->driver?->user_id,
-                        'full_name' => $review->driver?->full_name,
-                    ],
-                    'author' => [
-                        'user_id' => $review->passenger?->user_id,
-                        'full_name' => $review->passenger?->full_name,
-                    ],
+                    'rated_user' => $this->transformUser($review->driver),
+                    'author' => $this->transformUser($review->passenger),
                     'stars' => $review->rating,
                     'classification' => $classification,
                     'comment' => $review->comment,
@@ -260,10 +259,39 @@ class RatingRepository
             'rating_id' => $review->review_id,
             'booking_id' => $review->booking_id,
             'trip_id' => $review->booking?->trip_id,
-            'passenger_name' => $review->passenger?->full_name,
+            'passenger' => $this->transformUser($review->passenger),
             'stars' => $review->rating,
             'comment' => $review->comment,
             'created_at' => $review->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function transformUser(?User $user): ?array
+    {
+        if (! $user) {
+            return null;
+        }
+
+        $roles = $user->relationLoaded('roles')
+            ? $user->roles->pluck('name')->values()->all()
+            : $user->roles()->pluck('name')->values()->all();
+
+        return [
+            'user_id' => $user->user_id,
+            'full_name' => $user->full_name,
+            'phone' => $user->phone,
+            'email' => $user->email,
+            'rating' => $user->rating !== null ? (float) $user->rating : null,
+            'account_status' => (int) $user->account_status,
+            'account_status_text' => $user->account_status_text,
+            'registration_type' => $user->registration_type,
+            'registration_type_text' => $user->registration_type_text,
+            'roles' => $roles,
+            'driver_profile' => $user->driverProfile ? [
+                'address' => $user->driverProfile->address,
+                'approval_status' => $user->driverProfile->approval_status,
+                'personal_photo' => $user->driverProfile->personal_photo,
+            ] : null,
         ];
     }
 }
