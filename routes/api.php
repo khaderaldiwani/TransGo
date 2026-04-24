@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\CommissionRateController;
 use App\Http\Controllers\Api\V1\Admin\ComplaintController as AdminComplaintController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
+use App\Http\Controllers\Api\V1\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -17,13 +18,18 @@ use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\LoginController;
 use App\Http\Controllers\Api\V1\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\V1\ComplaintController;
+use App\Http\Controllers\Api\V1\Driver\ComplaintController as DriverComplaintController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
+use App\Http\Controllers\Api\V1\Driver\RatingController as DriverRatingController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
 use App\Http\Controllers\Api\V1\Driver\WalletController as DriverWalletController;
 use App\Http\Controllers\Api\V1\Passenger\BookingController;
+use App\Http\Controllers\Api\V1\Passenger\ComplaintController as PassengerComplaintController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
+use App\Http\Controllers\Api\V1\Passenger\RatingController as PassengerRatingController;
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
+use App\Http\Controllers\Api\V1\Passenger\TripController as PassengerTripController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -59,6 +65,7 @@ Route::prefix('v1/admin')->group(function () {
         
         // Drivers Apis 
         Route::get('/drivers', [DriverController::class, 'index']);
+        Route::get('/drivers/low-rated', [AdminRatingController::class, 'lowRatedDrivers']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
         ///////
         Route::post('/drivers', [DriverController::class, 'store']);
@@ -99,6 +106,8 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/complaints/{complaintId}', [AdminComplaintController::class, 'show'])->whereNumber('complaintId');
         Route::patch('/complaints/{complaintId}/status', [AdminComplaintController::class, 'updateStatus']);
         Route::get('/complaints/{complaintId}/audit', [AdminComplaintController::class, 'auditTrail'])->whereNumber('complaintId');
+        Route::get('/ratings', [AdminRatingController::class, 'index']);
+        Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
         
         
     });
@@ -109,12 +118,15 @@ Route::prefix('v1/passenger')->group(function () {
     Route::post('/register', [PassengerAuthController::class, 'register']);
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
+        Route::get('/trips', [PassengerTripController::class, 'index']);
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
+        Route::post('/rate-trip/{tripId}', [PassengerRatingController::class, 'store'])->whereNumber('tripId');
         
         // Complaints
         Route::post('/complaints', [ComplaintController::class, 'store']);
+        Route::get('/complaints', [PassengerComplaintController::class, 'index']);
         
        //receipts
         Route::get('/receipts', [PassengerReceiptController::class, 'index']);
@@ -159,6 +171,9 @@ Route::prefix('v1/driver')->group(function () {
         
         // Complaints
         Route::post('/complaints', [ComplaintController::class, 'store']);
+        Route::get('/complaints', [DriverComplaintController::class, 'index']);
+        // ratings
+        Route::get('/rating', [DriverRatingController::class, 'show']);
         
         //receipts
         Route::get('/receipts', [DriverReceiptController::class, 'index']);

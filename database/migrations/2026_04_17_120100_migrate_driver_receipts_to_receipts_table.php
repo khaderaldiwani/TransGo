@@ -36,6 +36,10 @@ return new class extends Migration
 
     private function dropWalletReceiptForeignIfExists(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         $databaseName = DB::getDatabaseName();
 
         if (! $databaseName) {
