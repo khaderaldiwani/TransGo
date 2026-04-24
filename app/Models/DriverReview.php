@@ -13,8 +13,12 @@ class DriverReview extends Model
         'booking_id',
         'driver_id',
         'passenger_id',
+        'rated_user_type',
         'rating',
         'comment',
+        'is_visible',
+        'hidden_at',
+        'hidden_by',
     ];
 
     protected $casts = [
@@ -22,8 +26,10 @@ class DriverReview extends Model
         'driver_id' => 'integer',
         'passenger_id' => 'integer',
         'rating' => 'integer',
+        'is_visible' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'hidden_at' => 'datetime',
     ];
 
     public function booking()
@@ -39,5 +45,10 @@ class DriverReview extends Model
     public function passenger()
     {
         return $this->belongsTo(User::class, 'passenger_id', 'user_id');
+    }
+
+    public function hiddenBy()
+    {
+        return $this->belongsTo(User::class, 'hidden_by', 'user_id');
     }
 }
