@@ -25,10 +25,13 @@ use App\Http\Controllers\Api\V1\Passenger\BookingController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
+use App\Http\Controllers\Api\V1\TripStatusController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+Route::get('/v1/trip-statuses', [TripStatusController::class, 'index']);
 
 Route::prefix('v1/auth')->group(function () {
     Route::post('/send-otp', [OtpController::class, 'send']);

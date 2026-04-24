@@ -28,7 +28,7 @@ class TripStatusSeeder extends Seeder
             ],
             [
                 'status_key' => TripStatus::COMPLETED,
-                'status_name' => 'مكتملة',
+                'status_name' => 'منجزة',
                 'description' => 'تم إنهاء الرحلة بنجاح من قبل السائق.',
                 'is_final' => true,
                 'display_order' => 3,
