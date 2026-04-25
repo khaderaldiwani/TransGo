@@ -40,8 +40,8 @@ class AdminProfilesApiTest extends TestCase
 
         $driver = $this->createDriver('Driver Profile', 'driver-profile@example.com');
 
-        $driverProfile = DriverProfile::create([
-            'user_id' => $driver->user_id,
+        $driverProfile = DriverProfile::query()->where('user_id', $driver->user_id)->firstOrFail();
+        $driverProfile->update([
             'address' => 'Damascus Downtown',
             'id_card' => 'storage/drivers/id-cards/driver-card.jpg',
             'license_image' => 'storage/drivers/licenses/driver-license.jpg',
