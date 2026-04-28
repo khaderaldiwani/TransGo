@@ -226,6 +226,50 @@ class CommissionRateService
         ];
     }
 
+    public function previewCommissionSnapshot(
+        User $driver,
+        bool $allowShared,
+        bool $allowPrivate,
+        int $totalSeats,
+        float $systemCalculatedPrice,
+        int $vehicleSeatCapacity
+    ): array {
+        $wallet = Wallet::query()->firstOrCreate(
+            ['user_id' => $driver->user_id],
+            ['balance' => 0]
+        );
+
+        $snapshot = $this->resolveSnapshot();
+
+        $sharedRevenue = $allowShared
+            ? round((round($systemCalculatedPrice / max($vehicleSeatCapacity, 1), 2)) * $totalSeats, 2)
+            : 0.0;
+
+        $privateRevenue = $allowPrivate
+            ? round($systemCalculatedPrice, 2)
+            : 0.0;
+
+        $maxPotentialRevenue = round(max($sharedRevenue, $privateRevenue), 2);
+        $maxCommissionAmount = $this->calculateCommissionAmount(
+            $maxPotentialRevenue,
+            (float) $snapshot['percentage']
+        );
+
+        if ((float) $wallet->balance < $maxCommissionAmount) {
+            throw ValidationException::withMessages([
+                'wallet_balance' => "رصيد محفظة السائق غير كافٍ لتغطية العمولة القصوى المتوقعة لهذه الرحلة. المطلوب {$maxCommissionAmount}.",
+            ]);
+        }
+
+        return [
+            'commission_rate_id' => $snapshot['commission_rate_id'],
+            'commission_percentage' => (float) $snapshot['percentage'],
+            'max_potential_revenue' => $maxPotentialRevenue,
+            'max_commission_amount' => $maxCommissionAmount,
+            'wallet_balance' => round((float) $wallet->balance, 2),
+        ];
+    }
+
     public function calculateTripGrossRevenue(Trip $trip): float
     {
         $trip->loadMissing(['bookings.status', 'bookings.attendanceStatus']);

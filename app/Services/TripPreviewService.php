@@ -33,13 +33,13 @@ class TripPreviewService
         $systemCalculatedPrice = $this->priceCalculatorService->calculateSystemPrice(
             (float) $route['estimated_distance_km'],
         );
-        $commissionSnapshot = $this->commissionRateService->ensureDriverCanCoverTripCommission(
+        $commissionSnapshot = $this->commissionRateService->previewCommissionSnapshot(
             $actor,
             (bool) ($data['allow_shared'] ?? false),
             (bool) ($data['allow_private'] ?? false),
             (int) $data['total_seats'],
-            ! empty($data['allow_shared']) ? (float) $data['shared_price'] : null,
-            ! empty($data['allow_private']) ? (float) $data['private_price'] : null
+            $systemCalculatedPrice,
+            (int) $vehicle->seat_capacity
         );
 
         return [
