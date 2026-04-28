@@ -2,11 +2,15 @@
 
 namespace App\Services;
 
-use App\Models\DriverProfile;
+use App\Models\DriverReview;
 use App\Models\Role;
+use App\Models\Trip;
+use App\Models\TripStatus;
+use App\Models\DriverProfile;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\Wallet;
+use Illuminate\Support\Collection;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -68,7 +72,7 @@ class DriverManagementService
             ->paginate($filters['per_page'] ?? 15);
     }
 
-    public function getDriver(int $id): User
+    public function getDriver(int $id): array
     {
         $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
             ->with(['roles', 'driverProfile.vehicles.images', 'wallet'])
@@ -78,7 +82,89 @@ class DriverManagementService
             throw new RuntimeException('السائق غير موجود.', 404);
         }
 
-        return $user;
+        $trips = Trip::query()
+            ->with([
+                'status',
+                'startGovernorate',
+                'endGovernorate',
+                'points',
+                'bookings.passenger',
+            ])
+            ->where('driver_id', $user->user_id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        $reviews = DriverReview::query()
+            ->with(['passenger', 'booking.trip'])
+            ->where('driver_id', $user->user_id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        $vehicle = $user->driverProfile?->vehicles?->first();
+        $tripStatusCounts = $this->buildTripStatusCounts($trips);
+        $tripRows = $trips->map(fn (Trip $trip) => $this->transformTripHistoryRow($trip))->values();
+        $earningsRows = $trips->map(fn (Trip $trip) => $this->transformEarningRow($trip))->values();
+        $ratingsSummary = $this->buildRatingsSummary($reviews);
+        $carPhotoUrls = $vehicle?->images?->map(
+            fn ($image) => $this->absoluteFileUrl($image->image_url)
+        )->filter()->values()->all() ?? [];
+
+        $accountStatus = $this->resolveDriverAccountStatus(
+            (int) $user->account_status,
+            $user->driverProfile?->approval_status
+        );
+        $isCarUnderDriverName = ! empty($vehicle?->ownership_document);
+        $certifiedAgencyDocument = $this->absoluteFileUrl($vehicle?->certified_agency);
+        $saleContractImage = $this->absoluteFileUrl($vehicle?->mechanical_car);
+        $saleContractValidationFlag = $saleContractImage !== null
+            ? $this->validateSaleContract($vehicle?->ownership_document)
+            : null;
+
+        return [
+            'personal_information' => [
+                'full_name' => $user->full_name,
+                'phone' => $user->phone,
+                'address' => $user->driverProfile?->address,
+                'personal_photo' => $this->absoluteFileUrl($user->driverProfile?->personal_photo),
+                'account_status' => $accountStatus,
+                'id_card_image' => $this->absoluteFileUrl($user->driverProfile?->id_card),
+                'license_image' => $this->absoluteFileUrl($user->driverProfile?->license_image),
+                'email' => $user->email,
+                'created_at' => $user->created_at?->toIso8601String(),
+            ],
+            'vehicle_information' => [
+                'car_type' => $vehicle?->car_type,
+                'plate_number' => $user->driverProfile?->id_card,
+                'car_photos' => $carPhotoUrls,
+                'driving_license_image' => $this->absoluteFileUrl($user->driverProfile?->license_image),
+                'insurance_image' => $this->absoluteFileUrl($vehicle?->insurance_image),
+                'certified_agency_document' => $certifiedAgencyDocument,
+                'sale_contract' => [
+                    'exists' => $saleContractImage !== null,
+                    'contract_image' => $saleContractImage,
+                    'contract_validation_flag' => $saleContractValidationFlag,
+                ],
+                'validation' => [
+                    'is_car_under_driver_name' => $isCarUnderDriverName,
+                    'certified_agency_document_required' => ! $isCarUnderDriverName,
+                    'certified_agency_document_valid' => $isCarUnderDriverName || $certifiedAgencyDocument !== null,
+                ],
+            ],
+            'trips_history' => [
+                'filters' => [
+                    'supported_statuses' => ['pending', 'active', 'completed', 'cancelled'],
+                ],
+                'trips' => $tripRows,
+                ...$tripStatusCounts,
+            ],
+            'financial_earnings' => [
+                'trips' => $earningsRows,
+                'total_gross_earnings' => (float) $earningsRows->sum('trip_price'),
+                'total_commission' => (float) $earningsRows->sum('commission_amount'),
+                'total_net_earnings' => (float) $earningsRows->sum('net_amount'),
+            ],
+            'ratings_reviews' => $ratingsSummary,
+        ];
     }
 
     public function createDriver(array $data, User $actor): array
@@ -193,7 +279,7 @@ class DriverManagementService
 
     public function toggleStatus(int $id, User $actor): User
     {
-        $user = $this->getDriver($id);
+        $user = $this->resolveDriver($id);
 
         $oldStatus = $user->account_status;
         $newStatus = $oldStatus === User::STATUS_ACTIVE ? User::STATUS_INACTIVE : User::STATUS_ACTIVE;
@@ -212,4 +298,182 @@ class DriverManagementService
 
         return $user->fresh(['roles', 'driverProfile.vehicles.images', 'wallet']);
     }
+
+
+    private function resolveDriver(int $id): User
+    {
+        $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
+            ->with(['roles', 'driverProfile.vehicles.images', 'wallet'])
+            ->find($id);
+
+        if (! $user) {
+            throw new RuntimeException('Driver not found.', 404);
+        }
+
+        return $user;
+    }
+    private function transformTripHistoryRow(Trip $trip): array
+    {
+        $startPoint = $trip->points->firstWhere('point_type', 'start') ?? $trip->points->sortBy('sequence_order')->first();
+        $endPoint = $trip->points->firstWhere('point_type', 'end') ?? $trip->points->sortByDesc('sequence_order')->first();
+        $firstPassenger = $trip->bookings->first()?->passenger;
+
+        return [
+            'id' => $trip->trip_id,
+            'from_location' => [
+                'address' => $startPoint?->address ?? $trip->startGovernorate?->name,
+                'coordinates' => [
+                    'lat' => $startPoint?->latitude !== null ? (float) $startPoint->latitude : null,
+                    'lng' => $startPoint?->longitude !== null ? (float) $startPoint->longitude : null,
+                ],
+            ],
+            'to_location' => [
+                'address' => $endPoint?->address ?? $trip->endGovernorate?->name,
+                'coordinates' => [
+                    'lat' => $endPoint?->latitude !== null ? (float) $endPoint->latitude : null,
+                    'lng' => $endPoint?->longitude !== null ? (float) $endPoint->longitude : null,
+                ],
+            ],
+            'datetime' => $trip->departure_time?->toIso8601String(),
+            'number_of_seats' => (int) $trip->total_seats,
+            'trip_price' => $this->resolveTripPrice($trip),
+            'status' => $this->normalizeTripStatus($trip->status?->status_key),
+            'passenger_name' => $firstPassenger?->full_name,
+            'passenger_phone' => $firstPassenger?->phone,
+            'created_at' => $trip->created_at?->toIso8601String(),
+        ];
+    }
+
+    private function transformEarningRow(Trip $trip): array
+    {
+        $tripPrice = $this->resolveTripPrice($trip);
+        $commissionAmount = $trip->commission_amount !== null ? (float) $trip->commission_amount : 0.0;
+        $netAmount = $trip->net_revenue_amount !== null
+            ? (float) $trip->net_revenue_amount
+            : (float) max(0, $tripPrice - $commissionAmount);
+
+        return [
+            'trip_id' => $trip->trip_id,
+            'trip_price' => $tripPrice,
+            'commission_amount' => $commissionAmount,
+            'net_amount' => $netAmount,
+        ];
+    }
+
+    private function resolveTripPrice(Trip $trip): float
+    {
+        if ($trip->gross_revenue_amount !== null) {
+            return (float) $trip->gross_revenue_amount;
+        }
+
+        if ($trip->system_calculated_price !== null) {
+            return (float) $trip->system_calculated_price;
+        }
+
+        if ($trip->shared_price !== null) {
+            return (float) $trip->shared_price;
+        }
+
+        if ($trip->private_price !== null) {
+            return (float) $trip->private_price;
+        }
+
+        return 0.0;
+    }
+
+    private function buildTripStatusCounts(Collection $trips): array
+    {
+        $statusKeys = $trips->map(
+            fn (Trip $trip) => $this->normalizeTripStatus($trip->status?->status_key)
+        );
+
+        return [
+            'total_trips_count' => $trips->count(),
+            'completed_trips_count' => $statusKeys->filter(fn ($status) => $status === 'completed')->count(),
+            'cancelled_trips_count' => $statusKeys->filter(fn ($status) => $status === 'cancelled')->count(),
+            'pending_trips_count' => $statusKeys->filter(fn ($status) => $status === 'pending')->count(),
+            'active_trips_count' => $statusKeys->filter(fn ($status) => $status === 'active')->count(),
+        ];
+    }
+
+    private function normalizeTripStatus(?string $statusKey): string
+    {
+        return match ($statusKey) {
+            TripStatus::ACTIVE => 'active',
+            TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED => 'completed',
+            TripStatus::CANCELED => 'cancelled',
+            default => 'pending',
+        };
+    }
+
+    private function buildRatingsSummary(Collection $reviews): array
+    {
+        $totalRatings = $reviews->count();
+        $sumStars = $reviews->sum('rating');
+
+        $starsBreakdown = [
+            '1' => $reviews->where('rating', 1)->count(),
+            '2' => $reviews->where('rating', 2)->count(),
+            '3' => $reviews->where('rating', 3)->count(),
+            '4' => $reviews->where('rating', 4)->count(),
+            '5' => $reviews->where('rating', 5)->count(),
+        ];
+
+        return [
+            'average_rating' => $totalRatings > 0 ? round($sumStars / $totalRatings, 2) : 0.0,
+            'total_ratings_count' => $totalRatings,
+            'stars_breakdown' => $starsBreakdown,
+            'reviews' => $reviews->map(function (DriverReview $review) {
+                return [
+                    'stars' => (int) $review->rating,
+                    'comment' => $review->comment,
+                    'passenger_name' => $review->passenger?->full_name,
+                    'passenger_photo' => null,
+                    'trip_id' => $review->booking?->trip_id,
+                    'created_at' => $review->created_at?->toIso8601String(),
+                ];
+            })->values(),
+        ];
+    }
+
+    private function absoluteFileUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
+
+        return url('/'.ltrim($path, '/'));
+    }
+
+    private function validateSaleContract(?string $documentField): bool
+    {
+        if (! $documentField) {
+            return false;
+        }
+
+        $normalized = Str::lower($documentField);
+
+        return Str::contains($normalized, ['signed', 'stamp', 'owner', 'driver']);
+    }
+
+    private function resolveDriverAccountStatus(int $rawStatus, ?string $approvalStatus): string
+    {
+        if ($approvalStatus === DriverProfile::APPROVAL_PENDING) {
+            return 'pending';
+        }
+
+        if ($rawStatus === User::STATUS_ACTIVE) {
+            return 'active';
+        }
+
+        return 'suspended';
+    }
 }
+
+
+
+
