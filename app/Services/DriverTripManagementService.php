@@ -35,7 +35,8 @@ class DriverTripManagementService
         private readonly CommissionRateService $commissionRateService,
         private readonly AuditLogService $auditLogService,
         private readonly WalletTransactionService $walletTransactionService,
-        private readonly TripTrackingService $tripTrackingService
+        private readonly TripTrackingService $tripTrackingService,
+        private readonly TripClusterService $tripClusterService
     ) {
     }
 
@@ -252,6 +253,8 @@ class DriverTripManagementService
                     );
                 }
             }
+
+            $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
         });
 
         return $this->showTripDetails($tripId, $actor);
@@ -413,6 +416,8 @@ class DriverTripManagementService
                 'completion_longitude' => $completionContext['longitude'],
             ])->save();
 
+            $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
+
             $this->auditLogService->log(
                 $actor,
                 'trip.completed',
@@ -527,6 +532,8 @@ class DriverTripManagementService
                     'completion_latitude' => $completionContext['latitude'],
                     'completion_longitude' => $completionContext['longitude'],
                 ])->save();
+
+                $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
                 $this->auditLogService->log(
                     null,

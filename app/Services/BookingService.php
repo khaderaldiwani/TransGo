@@ -39,7 +39,8 @@ class BookingService
 
     public function __construct(
         private readonly GovernorateResolverService $governorateResolverService,
-        private readonly ReceiptService $receiptService
+        private readonly ReceiptService $receiptService,
+        private readonly TripClusterService $tripClusterService
     ) {
     }
 
@@ -65,6 +66,7 @@ class BookingService
             $bookingType = (string) $data['booking_type'];
             $seatsReserved = $this->normalizeSeatsReserved($bookingType, $data['seats_reserved'] ?? null, $trip);
             $this->ensureTripModeCompatibility($trip, $bookingType);
+            $this->ensureSharedTripIsVisibleForBooking($trip, $bookingType);
 
             if ($bookingType === 'shared' && $seatsReserved > $trip->available_seats) {
                 throw ValidationException::withMessages([
@@ -122,6 +124,7 @@ class BookingService
             }
 
             $this->applyTripModeAfterBooking($trip, $bookingType, $seatsReserved);
+            $this->tripClusterService->refreshClusterAvailability($trip->fresh()->cluster_id);
 
             $booking->load(['trip.driver.user', 'pickupPoint', 'payments', 'passenger']);
 
@@ -235,6 +238,7 @@ class BookingService
             }
 
             $this->restoreTripCapacityAfterCancellation($trip, $booking);
+            $this->tripClusterService->refreshClusterAvailability($trip->fresh()->cluster_id);
             $restriction = $this->applyRestrictionsAfterCancellation($actor, $penalty, $booking);
 
             if ($penalty['rating_penalty'] > 0) {
@@ -370,6 +374,19 @@ class BookingService
         if (! $trip->allow_shared || $hasPrivateBookings) {
             throw ValidationException::withMessages([
                 'booking_type' => 'هذه الرحلة أصبحت خاصة فقط ولا يمكن الحجز عليها كمشتركة.',
+            ]);
+        }
+    }
+
+    private function ensureSharedTripIsVisibleForBooking(Trip $trip, string $requestedBookingType): void
+    {
+        if ($requestedBookingType !== 'shared' || ! $trip->cluster_id) {
+            return;
+        }
+
+        if (! (bool) $trip->is_booking_visible) {
+            throw ValidationException::withMessages([
+                'trip_id' => 'هذه الرحلة غير متاحة للحجز المشترك حالياً. يرجى اختيار رحلة مفتوحة من نتائج البحث.',
             ]);
         }
     }

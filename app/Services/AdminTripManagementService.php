@@ -18,7 +18,8 @@ use RuntimeException;
 class AdminTripManagementService
 {
     public function __construct(
-        private readonly TripTrackingService $tripTrackingService
+        private readonly TripTrackingService $tripTrackingService,
+        private readonly TripClusterService $tripClusterService
     ) {
     }
 
@@ -161,6 +162,8 @@ class AdminTripManagementService
             $trip->forceFill([
                 'status_id' => $canceledStatus->status_id,
             ])->save();
+
+            $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
             $driverNotification = Notification::create([
                 'title' => 'إلغاء إداري للرحلة',

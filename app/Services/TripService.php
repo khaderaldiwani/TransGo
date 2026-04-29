@@ -17,7 +17,8 @@ class TripService
         private readonly RouteService $routeService,
         private readonly PriceCalculatorService $priceCalculatorService,
         private readonly GovernorateResolverService $governorateResolverService,
-        private readonly CommissionRateService $commissionRateService
+        private readonly CommissionRateService $commissionRateService,
+        private readonly TripClusterService $tripClusterService
     ) {
     }
 
@@ -97,7 +98,9 @@ class TripService
                 (string) $data['departure_time']
             ));
 
-            return $trip->load(['points', 'status', 'startGovernorate', 'endGovernorate']);
+            $this->tripClusterService->assignTripToCluster($trip->fresh(['points', 'status']));
+
+            return $trip->fresh(['points', 'status', 'startGovernorate', 'endGovernorate', 'cluster']);
         });
     }
 

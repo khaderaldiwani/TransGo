@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             TripStatusSeeder::class,
             GovernorateSeeder::class,
+            GovernorateAliasSeeder::class,
             BookingStatusSeeder::class,
             BookingAttendanceStatusSeeder::class,
             CommissionRateSeeder::class,

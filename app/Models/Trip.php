@@ -18,6 +18,7 @@ class Trip extends Model
         'driver_id',
         'start_governorate_id',
         'end_governorate_id',
+        'cluster_id',
         'departure_time',
         'estimated_duration_minutes',
         'estimated_distance_km',
@@ -26,6 +27,8 @@ class Trip extends Model
         'allow_shared',
         'allow_private',
         'is_private_booked',
+        'is_booking_visible',
+        'cluster_assigned_at',
         'shared_price',
         'private_price',
         'system_calculated_price',
@@ -60,6 +63,7 @@ class Trip extends Model
         'driver_id' => 'integer',
         'start_governorate_id' => 'integer',
         'end_governorate_id' => 'integer',
+        'cluster_id' => 'integer',
         'departure_time' => 'datetime',
         'estimated_duration_minutes' => 'integer',
         'estimated_distance_km' => 'decimal:2',
@@ -68,6 +72,8 @@ class Trip extends Model
         'allow_shared' => 'boolean',
         'allow_private' => 'boolean',
         'is_private_booked' => 'boolean',
+        'is_booking_visible' => 'boolean',
+        'cluster_assigned_at' => 'datetime',
         'shared_price' => 'decimal:2',
         'private_price' => 'decimal:2',
         'system_calculated_price' => 'decimal:2',
@@ -113,6 +119,11 @@ class Trip extends Model
     public function status()
     {
         return $this->belongsTo(TripStatus::class, 'status_id', 'status_id');
+    }
+
+    public function cluster()
+    {
+        return $this->belongsTo(TripCluster::class, 'cluster_id', 'cluster_id');
     }
 
     public function commissionRate()

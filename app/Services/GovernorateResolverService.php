@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Models\Governorate;
+use App\Models\GovernorateAlias;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class GovernorateResolverService
@@ -127,17 +127,16 @@ class GovernorateResolverService
     {
         $normalizedResolvedName = $this->normalizeGovernorateName($resolvedName);
 
+        if ($normalizedResolvedName === '') {
+            return null;
+        }
+
         return Governorate::query()
+            ->with('aliases')
             ->where('is_active', true)
             ->get()
             ->first(function (Governorate $governorate) use ($normalizedResolvedName) {
-                $normalizedDatabaseName = $this->normalizeGovernorateName($governorate->name);
-
-                if ($normalizedDatabaseName === $normalizedResolvedName) {
-                    return true;
-                }
-
-                return in_array($normalizedResolvedName, $this->governorateAliases()[$normalizedDatabaseName] ?? [], true);
+                return $this->governorateMatchesNormalizedText($governorate, $normalizedResolvedName);
             });
     }
 
@@ -150,59 +149,41 @@ class GovernorateResolverService
         }
 
         return Governorate::query()
+            ->with('aliases')
             ->where('is_active', true)
             ->get()
             ->first(function (Governorate $governorate) use ($normalizedAddress) {
-                $normalizedDatabaseName = $this->normalizeGovernorateName($governorate->name);
-
-                if (Str::contains($normalizedAddress, $normalizedDatabaseName)) {
-                    return true;
-                }
-
-                foreach ($this->governorateAliases()[$normalizedDatabaseName] ?? [] as $alias) {
-                    if (Str::contains($normalizedAddress, $alias)) {
-                        return true;
-                    }
-                }
-
-                return false;
+                return $this->governorateMatchesNormalizedText($governorate, $normalizedAddress, true);
             });
     }
 
     private function normalizeGovernorateName(string $name): string
     {
-        $normalized = Str::lower(trim($name));
-        $normalized = str_replace(
-            ['أ', 'إ', 'آ', 'ة', 'ى', 'ؤ', 'ئ'],
-            ['ا', 'ا', 'ا', 'ه', 'ي', 'و', 'ي'],
-            $normalized
-        );
-        $normalized = str_replace(
-            ['muhafazat ', 'governorate', 'province', '-', '_'],
-            ['', '', '', ' ', ' '],
-            $normalized
-        );
-
-        return preg_replace('/\s+/', ' ', $normalized) ?? '';
+        return GovernorateAlias::normalize($name);
     }
 
-    private function governorateAliases(): array
-    {
-        return [
-            'دمشق' => ['damascus', 'dimashq', 'damascus governorate'],
-            'ريف دمشق' => ['rif dimashq', 'rural damascus', 'damascus countryside', 'rural damascus governorate'],
-            'القنيطره' => ['quneitra', 'qunaitra', 'al qunaytirah', 'quneitra governorate'],
-            'درعا' => ['daraa', 'dar a', 'dar aa'],
-            'السويداء' => ['as suwayda', 'suwayda', 'sweida', 'as-suwayda'],
-            'حمص' => ['homs', 'hims'],
-            'حماه' => ['hama', 'hamah'],
-            'طرطوس' => ['tartus', 'tartous'],
-            'اللاذقيه' => ['latakia', 'lattakia'],
-            'ادلب' => ['idlib'],
-            'حلب' => ['aleppo', 'halab'],
-            'الرقه' => ['raqqa', 'ar raqqah', 'raqqah'],
-            'دير الزور' => ['deir ez zor', 'deir al zur', 'dayr az zawr', 'deir ezzor'],
-            'الحسكه' => ['al hasakah', 'hasakah', 'hasaka', 'hassakeh'],
-        ];
+    private function governorateMatchesNormalizedText(
+        Governorate $governorate,
+        string $normalizedText,
+        bool $allowContains = false
+    ): bool {
+        $candidates = collect([$governorate->name])
+            ->merge($governorate->aliases->pluck('alias'))
+            ->map(fn (?string $alias) => $this->normalizeGovernorateName((string) $alias))
+            ->filter()
+            ->unique();
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === $normalizedText) {
+                return true;
+            }
+
+            if ($allowContains && str_contains($normalizedText, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
     }
+
 }

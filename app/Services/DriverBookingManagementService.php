@@ -30,7 +30,8 @@ use RuntimeException;
 class DriverBookingManagementService
 {
     public function __construct(
-        private readonly ReceiptService $receiptService
+        private readonly ReceiptService $receiptService,
+        private readonly TripClusterService $tripClusterService
     ) {
     }
 
@@ -172,6 +173,8 @@ class DriverBookingManagementService
                 'reason' => $reason,
                 'changed_at' => now(),
             ]);
+
+            $this->tripClusterService->refreshClusterAvailability($trip->fresh()->cluster_id);
 
             $this->notifyPassengerStatusChange($booking->fresh(['pickupPoint']), $actor, $statusKey, $reason);
 

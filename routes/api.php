@@ -122,6 +122,7 @@ Route::prefix('v1/passenger')->group(function () {
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::get('/trips', [PassengerTripController::class, 'index']);
+        Route::get('/trips/search', [PassengerTripController::class, 'search']);
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');

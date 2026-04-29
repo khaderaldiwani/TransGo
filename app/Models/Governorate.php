@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Governorate extends Model
 {
@@ -34,5 +35,10 @@ class Governorate extends Model
     public function tripsTo()
     {
         return $this->hasMany(Trip::class, 'end_governorate_id', 'governorate_id');
+    }
+
+    public function aliases(): HasMany
+    {
+        return $this->hasMany(GovernorateAlias::class, 'governorate_id', 'governorate_id');
     }
 }
