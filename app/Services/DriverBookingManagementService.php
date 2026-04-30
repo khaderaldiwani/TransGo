@@ -676,6 +676,8 @@ class DriverBookingManagementService
             'booking_id' => $booking->booking_id,
             'booking_code' => $booking->booking_code,
             'passenger_name' => $booking->passenger?->full_name,
+            'passenger_image' => $booking->passenger?->profile_photo,
+            'passenger_rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
             'seats_reserved' => (int) $booking->seats_reserved,
             'payment_method' => $booking->payment_method,
             'status' => [
@@ -702,7 +704,8 @@ class DriverBookingManagementService
                 'id' => $booking->passenger?->user_id,
                 'full_name' => $booking->passenger?->full_name,
                 'phone' => $booking->passenger?->phone,
-                'rating' => $booking->passenger?->rating,
+                'image' => $booking->passenger?->profile_photo,
+                'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
             ],
             'booking' => [
                 'created_at' => optional($booking->created_at)->toIso8601String(),

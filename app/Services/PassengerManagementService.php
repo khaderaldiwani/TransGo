@@ -159,7 +159,7 @@ class PassengerManagementService
                     ->filter()
                     ->unique()
                     ->count(),
-                'profile_photo' => null,
+                'profile_photo' => $user->profile_photo,
                 'email' => $user->email,
             ],
             'bookings_history' => [

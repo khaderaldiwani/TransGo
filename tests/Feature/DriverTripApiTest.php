@@ -116,7 +116,9 @@ class DriverTripApiTest extends TestCase
 
         $this->getJson('/api/v1/driver/trips/'.$trip->trip_id.'/attendance')
             ->assertOk()
-            ->assertJsonPath('data.attendance.items.0.passenger_name', $passenger->full_name);
+            ->assertJsonPath('data.attendance.items.0.passenger_name', $passenger->full_name)
+            ->assertJsonPath('data.attendance.items.0.passenger_image', 'storage/passengers/profile-photo.jpg')
+            ->assertJsonPath('data.attendance.items.0.passenger_rating', 5);
     }
 
     public function test_driver_can_start_trip_and_notify_passengers(): void
@@ -274,11 +276,15 @@ class DriverTripApiTest extends TestCase
 
         $this->getJson('/api/v1/driver/trips/'.$earlierTrip->trip_id.'/bookings')
             ->assertOk()
-            ->assertJsonCount(2, 'data.items');
+            ->assertJsonCount(2, 'data.items')
+            ->assertJsonPath('data.items.0.passenger_image', 'storage/passengers/profile-photo.jpg')
+            ->assertJsonPath('data.items.0.passenger_rating', 5);
 
         $this->getJson('/api/v1/driver/bookings/'.$secondBooking->booking_id)
             ->assertOk()
             ->assertJsonPath('data.passenger.phone', $passengerTwo->phone)
+            ->assertJsonPath('data.passenger.image', 'storage/passengers/profile-photo.jpg')
+            ->assertJsonPath('data.passenger.rating', 5)
             ->assertJsonPath('data.operations.status_update_endpoint', '/api/v1/driver/bookings/'.$secondBooking->booking_id.'/status');
 
         $this->assertDatabaseHas('user_notifications', [
@@ -1039,6 +1045,7 @@ class DriverTripApiTest extends TestCase
             'password' => bcrypt('password'),
             'account_status' => User::STATUS_ACTIVE,
             'registration_type' => User::REGISTRATION_SELF,
+            'profile_photo' => 'storage/passengers/profile-photo.jpg',
         ]);
 
         $passenger->roles()->attach($passengerRole->id);

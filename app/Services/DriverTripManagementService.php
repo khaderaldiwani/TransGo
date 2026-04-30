@@ -139,6 +139,8 @@ class DriverTripManagementService
                         'booking_code' => $booking->booking_code,
                         'passenger_name' => $booking->passenger?->full_name,
                         'passenger_phone' => $booking->passenger?->phone,
+                        'passenger_image' => $booking->passenger?->profile_photo,
+                        'passenger_rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                         'pickup_point' => $booking->pickupPoint?->point_name ?? $booking->pickupPoint?->address,
                         'booking_status' => $booking->status?->status_name,
                         'attendance_status' => $booking->attendanceStatus?->status_name,
@@ -899,7 +901,8 @@ class DriverTripManagementService
                 'id' => $booking->passenger?->user_id,
                 'full_name' => $booking->passenger?->full_name,
                 'phone' => $booking->passenger?->phone,
-                'rating' => $booking->passenger?->rating,
+                'image' => $booking->passenger?->profile_photo,
+                'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
             ],
             'pickup_point' => [
                 'point_name' => $booking->pickupPoint?->point_name,

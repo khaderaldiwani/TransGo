@@ -153,6 +153,8 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
             return [
                 'booking_id' => $booking->booking_id,
                 'passenger_name' => $booking->passenger?->full_name, // ✅ اسم الراكب
+                'passenger_image' => $booking->passenger?->profile_photo,
+                'passenger_rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                 'seats_reserved' => (int) ($booking->seats_reserved ?? 0), // ✅ عدد المقاعد المطلوبة
                 'payment_method' => $booking->payment_method, // ✅ طريقة الدفع
                 'booking_details_url' => "/api/bookings/{$booking->booking_id}", // ✅ زر عرض تفاصيل الحجز
@@ -215,6 +217,8 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
             'passenger_info' => [
                 'full_name' => $booking->passenger?->full_name,
                 'phone' => $booking->passenger?->phone,
+                'image' => $booking->passenger?->profile_photo,
+                'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                 'seats_reserved' => (int) ($booking->seats_reserved ?? 0),
                 'attendance_status' => $attendanceStatus, // 'not_recorded', 'present', 'absent'
             ],

@@ -50,6 +50,7 @@ class User extends Authenticatable
         'rating_last_updated',
         'created_by',
         'registration_type',
+        'profile_photo',
     ];
      // ==================== Hidden ====================
     protected $hidden = [

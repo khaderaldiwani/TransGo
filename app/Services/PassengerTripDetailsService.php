@@ -138,6 +138,7 @@ class PassengerTripDetailsService
                     'booking_id' => $booking->booking_id,
                     'passenger_id' => $booking->passenger_id,
                     'full_name' => $booking->passenger?->full_name,
+                    'image' => $booking->passenger?->profile_photo,
                     'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                     'seats_reserved' => (int) $booking->seats_reserved,
                     'profile_endpoint' => "/api/v1/passenger/users/{$booking->passenger_id}",

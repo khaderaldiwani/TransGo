@@ -1,0 +1,125 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\BookingStatus;
+use Illuminate\Support\Collection;
+use Throwable;
+
+class BookingStatusService
+{
+    public function list(): array
+    {
+        $statuses = $this->resolveStatuses();
+
+        return [
+            'items' => $statuses
+                ->map(fn (array $status, int $index) => [
+                    'id' => $status['id'] ?? ($index + 1),
+                    'key' => $status['key'],
+                    'name' => $status['name'],
+                    'description' => $status['description'],
+                    'is_final' => (bool) $status['is_final'],
+                    'display_order' => (int) $status['display_order'],
+                    'color' => $this->resolveColor($status['key']),
+                ])
+                ->values(),
+        ];
+    }
+
+    private function resolveStatuses(): Collection
+    {
+        $defaults = collect($this->defaultStatuses())
+            ->keyBy('key');
+
+        try {
+            $storedStatuses = BookingStatus::query()
+                ->where('is_active', true)
+                ->orderBy('display_order')
+                ->get(['status_id', 'status_key'])
+                ->keyBy('status_key');
+
+            if ($storedStatuses->isEmpty()) {
+                return $defaults
+                    ->sortBy('display_order')
+                    ->values();
+            }
+
+            return $defaults
+                ->map(function (array $default) use ($storedStatuses) {
+                    /** @var BookingStatus|null $storedStatus */
+                    $storedStatus = $storedStatuses->get($default['key']);
+
+                    return [
+                        'id' => $storedStatus?->status_id,
+                        'key' => $default['key'],
+                        'name' => $default['name'],
+                        'description' => $default['description'],
+                        'is_final' => $default['is_final'],
+                        'display_order' => $default['display_order'],
+                    ];
+                })
+                ->sortBy('display_order')
+                ->values();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $defaults
+                ->sortBy('display_order')
+                ->values();
+        }
+    }
+
+    private function defaultStatuses(): array
+    {
+        return [
+            [
+                'key' => 'pending',
+                'name' => 'قيد الانتظار',
+                'description' => 'تم إرسال طلب الحجز وينتظر المعالجة.',
+                'is_final' => false,
+                'display_order' => 1,
+            ],
+            [
+                'key' => 'accepted',
+                'name' => 'مقبول',
+                'description' => 'تم قبول الحجز وتأكيده.',
+                'is_final' => false,
+                'display_order' => 2,
+            ],
+            [
+                'key' => 'rejected',
+                'name' => 'مرفوض',
+                'description' => 'تم رفض الحجز مع توثيق السبب عند توفره.',
+                'is_final' => true,
+                'display_order' => 3,
+            ],
+            [
+                'key' => 'canceled',
+                'name' => 'ملغى',
+                'description' => 'تم إلغاء الحجز من الراكب أو النظام أو الإدارة.',
+                'is_final' => true,
+                'display_order' => 4,
+            ],
+            [
+                'key' => 'completed',
+                'name' => 'منتهي',
+                'description' => 'تم تنفيذ الرحلة واكتمل الحجز بنجاح.',
+                'is_final' => true,
+                'display_order' => 5,
+            ],
+        ];
+    }
+
+    private function resolveColor(string $statusKey): string
+    {
+        return match ($statusKey) {
+            'pending' => '#f59e0b',
+            'accepted' => '#10b981',
+            'rejected' => '#ef4444',
+            'canceled' => '#64748b',
+            'completed' => '#0ea5e9',
+            default => '#94a3b8',
+        };
+    }
+}

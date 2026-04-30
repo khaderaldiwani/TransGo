@@ -340,6 +340,8 @@ class DriverManagementService
             'status' => $this->normalizeTripStatus($trip->status?->status_key),
             'passenger_name' => $firstPassenger?->full_name,
             'passenger_phone' => $firstPassenger?->phone,
+            'passenger_image' => $firstPassenger?->profile_photo,
+            'passenger_rating' => $firstPassenger?->rating !== null ? (float) $firstPassenger->rating : null,
             'created_at' => $trip->created_at?->toIso8601String(),
         ];
     }
@@ -428,7 +430,8 @@ class DriverManagementService
                     'stars' => (int) $review->rating,
                     'comment' => $review->comment,
                     'passenger_name' => $review->passenger?->full_name,
-                    'passenger_photo' => null,
+                    'passenger_photo' => $review->passenger?->profile_photo,
+                    'passenger_rating' => $review->passenger?->rating !== null ? (float) $review->passenger->rating : null,
                     'trip_id' => $review->booking?->trip_id,
                     'created_at' => $review->created_at?->toIso8601String(),
                 ];
@@ -473,7 +476,6 @@ class DriverManagementService
         return 'suspended';
     }
 }
-
 
 
 

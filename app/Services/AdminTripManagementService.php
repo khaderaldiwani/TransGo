@@ -427,11 +427,12 @@ class AdminTripManagementService
                             'name' => $booking->status?->status_name,
                         ],
                         'passenger' => [
-                            'id' => $booking->passenger?->user_id,
-                            'full_name' => $booking->passenger?->full_name,
-                            'phone' => $booking->passenger?->phone,
-                            'rating' => $booking->passenger?->rating,
-                        ],
+                        'id' => $booking->passenger?->user_id,
+                        'full_name' => $booking->passenger?->full_name,
+                        'phone' => $booking->passenger?->phone,
+                        'image' => $booking->passenger?->profile_photo,
+                        'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
+                    ],
                         'pickup_point' => [
                             'point_name' => $booking->pickupPoint?->point_name,
                             'address' => $booking->pickupPoint?->address,
