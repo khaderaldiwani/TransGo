@@ -17,6 +17,7 @@ class Governorate extends Model
 
     protected $fillable = [
         'name',
+        'image_url',
         'is_active',
         'created_at',
     ];

@@ -122,7 +122,17 @@ Route::prefix('v1/passenger')->group(function () {
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::get('/trips', [PassengerTripController::class, 'index']);
+        Route::get('/trips/current', [PassengerTripController::class, 'current']);
+        Route::get('/trips/pending', [PassengerTripController::class, 'pending']);
+        Route::get('/trips/completed', [PassengerTripController::class, 'completed']);
+        Route::get('/trips/canceled', [PassengerTripController::class, 'canceled']);
         Route::get('/trips/search', [PassengerTripController::class, 'search']);
+        Route::get('/trips/{id}', [PassengerTripController::class, 'show'])->whereNumber('id');
+        Route::get('/trip-categories', [PassengerTripController::class, 'categories']);
+        Route::get('/trip-categories/{governorateId}/trips', [PassengerTripController::class, 'categoryTrips'])->whereNumber('governorateId');
+        Route::get('/bookings', [BookingController::class, 'index']);
+        Route::get('/trips/{tripId}/bookings', [BookingController::class, 'byTrip'])->whereNumber('tripId');
+        Route::get('/bookings/{id}', [BookingController::class, 'show'])->whereNumber('id');
         Route::post('/bookings', [BookingController::class, 'store']);
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
