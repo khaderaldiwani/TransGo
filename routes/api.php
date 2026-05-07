@@ -77,7 +77,7 @@ Route::prefix('v1/admin')->group(function () {
         // disable or enable driver account
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
-        // Passengers Apis 
+        // Passengers Apis  + reports
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
