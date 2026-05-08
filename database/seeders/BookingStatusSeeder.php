@@ -10,14 +10,7 @@ class BookingStatusSeeder extends Seeder
     public function run(): void
     {
         $statuses = [
-            [
-                'status_key' => 'pending',
-                'status_name' => 'قيد الانتظار',
-                'description' => 'تم إرسال طلب الحجز وينتظر قبول السائق أو الإدارة.',
-                'is_final' => false,
-                'display_order' => 1,
-                'is_active' => true,
-            ],
+            
             [
                 'status_key' => 'accepted',
                 'status_name' => 'مقبول',

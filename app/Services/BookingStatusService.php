@@ -74,13 +74,6 @@ class BookingStatusService
     {
         return [
             [
-                'key' => 'pending',
-                'name' => 'قيد الانتظار',
-                'description' => 'تم إرسال طلب الحجز وينتظر المعالجة.',
-                'is_final' => false,
-                'display_order' => 1,
-            ],
-            [
                 'key' => 'accepted',
                 'name' => 'مقبول',
                 'description' => 'تم قبول الحجز وتأكيده.',
@@ -114,7 +107,6 @@ class BookingStatusService
     private function resolveColor(string $statusKey): string
     {
         return match ($statusKey) {
-            'pending' => '#f59e0b',
             'accepted' => '#10b981',
             'rejected' => '#ef4444',
             'canceled' => '#64748b',
