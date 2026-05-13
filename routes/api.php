@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\ComplaintController as AdminComplaintContr
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
 use App\Http\Controllers\Api\V1\Admin\RatingController as AdminRatingController;
+use App\Http\Controllers\Api\V1\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +33,7 @@ use App\Http\Controllers\Api\V1\Passenger\RatingController as PassengerRatingCon
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
 use App\Http\Controllers\Api\V1\Passenger\TripController as PassengerTripController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
+use App\Http\Controllers\Api\V1\GovernorateController;
 use App\Http\Controllers\Api\V1\TripStatusController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -40,6 +42,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::get('/v1/trip-statuses', [TripStatusController::class, 'index']);
 Route::get('/v1/booking-statuses', [BookingStatusController::class, 'index']);
+//new
+//governorates public endpoint for web
+Route::get('/v1/governorates', [GovernorateController::class, 'index']);
 
 Route::prefix('v1/auth')->group(function () {
     Route::post('/send-otp', [OtpController::class, 'send']);
@@ -113,6 +118,11 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/complaints/{complaintId}/audit', [AdminComplaintController::class, 'auditTrail'])->whereNumber('complaintId');
         Route::get('/ratings', [AdminRatingController::class, 'index']);
         Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
+     //new
+        //reports
+        Route::get('/reports/trips-by-governorates', [AdminReportController::class, 'tripsByGovernorates']);
+       //money
+        Route::get('/reports/revenue', [AdminReportController::class, 'revenue']);
         
         
     });
