@@ -13,6 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
+use App\Http\Controllers\Api\V1\Admin\DriverPerformanceController;
+use App\Http\Controllers\Api\V1\Admin\AppUsageReportController;
+use App\Http\Controllers\Api\V1\Admin\ComplaintReportController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
@@ -82,7 +85,7 @@ Route::prefix('v1/admin')->group(function () {
         // disable or enable driver account
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
-        // Passengers Apis 
+        // Passengers Apis  + reports
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
@@ -124,7 +127,15 @@ Route::prefix('v1/admin')->group(function () {
        //money
         Route::get('/reports/revenue', [AdminReportController::class, 'revenue']);
         
+        // Driver Performance Report
+        Route::get('/driver-performance/report', [DriverPerformanceController::class, 'report']);
+        Route::get('/driver-performance/export', [DriverPerformanceController::class, 'export']);
         
+        // Application Usage Report
+        Route::get('/app-usage/report', [AppUsageReportController::class, 'report']);
+        
+        // Complaint Report
+        Route::get('/complaints/report', [ComplaintReportController::class, 'report']);
     });
 });
 
