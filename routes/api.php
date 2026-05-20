@@ -125,11 +125,12 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/ratings', [AdminRatingController::class, 'index']);
         Route::get('/ratings/list', [AdminRatingController::class, 'listRatings']);
         Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
-     //new
+    
         //reports
         Route::get('/reports/trips-by-governorates', [AdminReportController::class, 'tripsByGovernorates']);
        //money
         Route::get('/reports/revenue', [AdminReportController::class, 'revenue']);
+        // profile
         Route::get('/me', [AdminProfileController::class, 'show']);
 
         
