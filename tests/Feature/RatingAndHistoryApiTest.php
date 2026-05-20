@@ -260,6 +260,14 @@ class RatingAndHistoryApiTest extends TestCase
                 'phone' => $secondPassenger->phone,
             ]);
 
+        $this->getJson('/api/v1/admin/ratings/list?user_type=driver&from_date='.now()->subDays(3)->toDateString().'&to_date='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('data.items.0.username', $driver->full_name)
+            ->assertJsonPath('data.items.0.user_type', 'driver')
+            ->assertJsonPath('data.items.0.stars', 1)
+            ->assertJsonPath('data.items.0.rating_status', 'visible')
+            ->assertJsonFragment(['comment' => 'Driver arrived late']);
+
         $this->getJson('/api/v1/admin/ratings?user_type=driver&user_id='.$driver->user_id)
             ->assertOk()
             ->assertJsonPath('data.filters.user_id', $driver->user_id)

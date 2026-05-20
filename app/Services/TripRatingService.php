@@ -68,6 +68,14 @@ class TripRatingService
         return $this->ratingRepository->getAdminRatingAnalytics($filters);
     }
 
+    public function getAdminRatingsList(array $filters): array
+    {
+        return [
+            'filters' => $filters,
+            'items' => $this->ratingRepository->getAdminRatingList($filters),
+        ];
+    }
+
     public function toggleRatingVisibility(int $ratingId, User $actor): array
     {
         $review = $this->ratingRepository->toggleRatingVisibility($ratingId, $actor);
