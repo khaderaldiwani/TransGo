@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\Admin\DriverController;
 use App\Http\Controllers\Api\V1\Admin\DriverPerformanceController;
 use App\Http\Controllers\Api\V1\Admin\AppUsageReportController;
 use App\Http\Controllers\Api\V1\Admin\ComplaintReportController;
+use App\Http\Controllers\Api\V1\Admin\ProfileController as AdminProfileController;
 use App\Http\Controllers\Api\V1\Auth\LogoutController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
@@ -26,9 +27,11 @@ use App\Http\Controllers\Api\V1\Driver\ComplaintController as DriverComplaintCon
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
 use App\Http\Controllers\Api\V1\Driver\RatingController as DriverRatingController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
+use App\Http\Controllers\Api\V1\Driver\ProfileController as DriverProfileController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
 use App\Http\Controllers\Api\V1\Driver\WalletController as DriverWalletController;
 use App\Http\Controllers\Api\V1\Passenger\BookingController;
+use App\Http\Controllers\Api\V1\Passenger\ProfileController as PassengerProfileController;
 use App\Http\Controllers\Api\V1\Passenger\ComplaintController as PassengerComplaintController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 use App\Http\Controllers\Api\V1\Passenger\RatingController as PassengerRatingController;
@@ -117,6 +120,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/ratings', [AdminRatingController::class, 'index']);
         Route::get('/ratings/list', [AdminRatingController::class, 'listRatings']);
         Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
+        Route::get('/me', [AdminProfileController::class, 'show']);
         
         // Driver Performance Report
         Route::get('/driver-performance/report', [DriverPerformanceController::class, 'report']);
@@ -164,6 +168,12 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/wallet', [PassengerWalletController::class, 'show']);
         Route::get('/wallet/transactions', [PassengerWalletController::class, 'transactions']);
         Route::get('/wallet/transactions/{id}', [PassengerWalletController::class, 'showTransaction'])->whereNumber('id');
+
+        // profile
+        Route::get('/me', [PassengerProfileController::class, 'show']);
+        Route::patch('/me', [PassengerProfileController::class, 'update']);
+        Route::get('/users/{id}', [PassengerProfileController::class, 'showOtherPassenger'])->whereNumber('id');
+        Route::get('/drivers/{driverId}', [PassengerProfileController::class, 'showDriverProfile'])->whereNumber('driverId');
     
         });
     
@@ -210,6 +220,10 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/wallet', [DriverWalletController::class, 'show']);
         Route::get('/wallet/transactions', [DriverWalletController::class, 'transactions']);
         Route::get('/wallet/transactions/{id}', [DriverWalletController::class, 'showTransaction'])->whereNumber('id');
+
+        // profile
+        Route::get('/me', [DriverProfileController::class, 'show']);
+        Route::get('/passengers/{id}', [DriverProfileController::class, 'showPassengerProfile'])->whereNumber('id');
         
     });
     

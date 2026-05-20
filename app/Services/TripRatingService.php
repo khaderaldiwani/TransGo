@@ -70,8 +70,21 @@ class TripRatingService
 
     public function getAdminRatingsList(array $filters): array
     {
+        $analytics = $this->ratingRepository->getAdminRatingAnalytics($filters);
+
         return [
             'filters' => $filters,
+            'summary' => [
+                'average_rating' => $analytics['summary']['average_rating'] ?? 0,
+                'total_ratings' => $analytics['summary']['total_ratings'] ?? 0,
+                'breakdown' => $analytics['summary']['breakdown'] ?? [
+                    '1' => 0,
+                    '2' => 0,
+                    '3' => 0,
+                    '4' => 0,
+                    '5' => 0,
+                ],
+            ],
             'items' => $this->ratingRepository->getAdminRatingList($filters),
         ];
     }

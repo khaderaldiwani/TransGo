@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\DriverReview;
 use App\Models\Role;
+use App\Models\Booking;
 use App\Models\Trip;
 use App\Models\TripStatus;
 use App\Models\DriverProfile;
@@ -165,6 +166,129 @@ class DriverManagementService
             ],
             'ratings_reviews' => $ratingsSummary,
         ];
+    }
+
+    public function getAuthenticatedDriverProfile(User $user, int $perPage = 10): array
+    {
+        $driver = $this->resolveDriver($user->user_id);
+
+        $vehicle = $driver->driverProfile?->vehicles?->first();
+        $carPhotoUrls = $vehicle?->images?->map(
+            fn ($image) => $this->absoluteFileUrl($image->image_url)
+        )->filter()->values()->all() ?? [];
+
+        $reviews = DriverReview::query()
+            ->with(['passenger'])
+            ->where('driver_id', $driver->user_id)
+            ->where('rated_user_type', Role::ROLE_DRIVER)
+            ->where('is_visible', true)
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+
+        return [
+            'profile' => [
+                'name' => $driver->full_name,
+                'photo' => $this->absoluteFileUrl($driver->driverProfile?->personal_photo),
+                'phone_number' => $driver->phone,
+                'email' => $driver->email,
+                'car_plate_number' => $driver->driverProfile?->id_card,
+                'car_type' => $vehicle?->car_type,
+                'car_photos' => $carPhotoUrls,
+                'overall_rating' => $this->calculateDriverRating($driver->user_id),
+            ],
+            'reviews' => $reviews,
+        ];
+    }
+
+    public function getDriverProfileForPassenger(int $driverId, int $perPage = 10): array
+    {
+        $driver = $this->resolveDriver($driverId);
+
+        $vehicle = $driver->driverProfile?->vehicles?->first();
+        $carPhotoUrls = $vehicle?->images?->map(
+            fn ($image) => $this->absoluteFileUrl($image->image_url)
+        )->filter()->values()->all() ?? [];
+
+        $reviews = DriverReview::query()
+            ->with(['passenger'])
+            ->where('driver_id', $driver->user_id)
+            ->where('rated_user_type', Role::ROLE_DRIVER)
+            ->where('is_visible', true)
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+
+        return [
+            'profile' => [
+                'name' => $driver->full_name,
+                'photo' => $this->absoluteFileUrl($driver->driverProfile?->personal_photo),
+                'phone_number' => $driver->phone,
+                'car_plate_number' => $driver->driverProfile?->id_card,
+                'car_type' => $vehicle?->car_type,
+                'car_photos' => $carPhotoUrls,
+                'overall_rating' => $this->calculateDriverRating($driver->user_id),
+            ],
+            'reviews' => $reviews,
+        ];
+    }
+
+    public function getPassengerProfile(int $id): array
+    {
+        $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_PASSENGER))
+            ->find($id);
+
+        if (! $user) {
+            throw new RuntimeException('Passenger not found.', 404);
+        }
+
+        return [
+            'photo' => $this->absoluteFileUrl($user->profile_photo),
+            'name' => $user->full_name,
+            'phone_number' => $user->phone,
+            'cancelled_reservations_count' => $this->buildPassengerReservationCount($user, 'cancelled'),
+            'completed_reservations_count' => $this->buildPassengerReservationCount($user, 'completed'),
+            'rating' => $this->buildPassengerRating($user),
+        ];
+    }
+
+    private function calculateDriverRating(int $driverId): float
+    {
+        $rating = DriverReview::query()
+            ->where('driver_id', $driverId)
+            ->where('rated_user_type', Role::ROLE_DRIVER)
+            ->where('is_visible', true)
+            ->avg('rating');
+
+        return $rating !== null ? round((float) $rating, 2) : 0.0;
+    }
+
+    private function buildPassengerReservationCount(User $user, string $type): int
+    {
+        $query = Booking::query()->where('passenger_id', $user->user_id);
+
+        if ($type === 'completed') {
+            $query->where(function ($query) {
+                $query->whereHas('status', fn ($q) => $q->where('status_key', 'completed'))
+                    ->orWhereHas('trip.status', fn ($q) => $q->whereIn('status_key', [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED]));
+            });
+        } else {
+            $query->where(function ($query) {
+                $query->whereHas('status', fn ($q) => $q->whereIn('status_key', ['canceled', 'rejected']))
+                    ->orWhereHas('trip.status', fn ($q) => $q->where('status_key', TripStatus::CANCELED));
+            });
+        }
+
+        return $query->count();
+    }
+
+    private function buildPassengerRating(User $user): float
+    {
+        $rating = DriverReview::query()
+            ->where('passenger_id', $user->user_id)
+            ->where('rated_user_type', Role::ROLE_PASSENGER)
+            ->where('is_visible', true)
+            ->avg('rating');
+
+        return $rating !== null ? round((float) $rating, 2) : 0.0;
     }
 
     public function createDriver(array $data, User $actor): array

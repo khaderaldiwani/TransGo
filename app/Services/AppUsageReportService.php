@@ -18,29 +18,28 @@ class AppUsageReportService
         $userType = $filters['user_type'] ?? null;
         $governorateId = $filters['governorate_id'] ?? null;
         $userRole = $filters['user_role'] ?? Role::ROLE_ADMIN;
-        $employeeGovernorates = $filters['employee_governorates'] ?? null;
 
         $activePassengerCount = null;
         $activeDriverCount = null;
 
         if (!$userType || $userType === Role::ROLE_PASSENGER) {
-            $activePassengerCount = $this->countActivePassengers($fromDate, $toDate, $governorateId, $userRole, $employeeGovernorates);
+            $activePassengerCount = $this->countActivePassengers($fromDate, $toDate, $governorateId, $userRole);
         }
 
         if (!$userType || $userType === Role::ROLE_DRIVER) {
-            $activeDriverCount = $this->countActiveDrivers($fromDate, $toDate, $governorateId, $userRole, $employeeGovernorates);
+            $activeDriverCount = $this->countActiveDrivers($fromDate, $toDate, $governorateId, $userRole);
         }
 
         $totalActiveUsers = ($activePassengerCount ?? 0) + ($activeDriverCount ?? 0);
 
         // Calculate new users registered in the date range
-        $newUsersCount = $this->countNewUsers($fromDate, $toDate, $userType, $governorateId, $userRole, $employeeGovernorates);
+        $newUsersCount = $this->countNewUsers($fromDate, $toDate, $userType, $governorateId, $userRole);
 
         // Calculate total completed bookings
-        $totalBookingsCompleted = $this->countCompletedBookings($fromDate, $toDate, $governorateId, $userRole, $employeeGovernorates);
+        $totalBookingsCompleted = $this->countCompletedBookings($fromDate, $toDate, $governorateId, $userRole);
 
         // Calculate total users for percentage
-        $totalUsers = $this->countTotalUsers($userType, $governorateId, $userRole, $employeeGovernorates);
+        $totalUsers = $this->countTotalUsers($userType, $governorateId, $userRole);
         $activeUsersPercentage = $totalUsers > 0 ? round(($totalActiveUsers / $totalUsers) * 100, 2) : 0;
 
         return [
@@ -50,7 +49,7 @@ class AppUsageReportService
                 'user_type' => $userType,
                 'governorate_id' => $governorateId,
                 'user_role' => $userRole,
-                'employee_governorates' => $employeeGovernorates,
+            
             ],
             'summary' => [
                 'active_users' => $totalActiveUsers,
@@ -61,7 +60,7 @@ class AppUsageReportService
         ];
     }
 
-    private function countActivePassengers(string $fromDate, string $toDate, ?int $governorateId, string $userRole, ?string $employeeGovernorates): int
+    private function countActivePassengers(string $fromDate, string $toDate, ?int $governorateId, string $userRole): int
     {
         $query = Booking::query()
             ->whereDate('created_at', '>=', $fromDate)
@@ -74,18 +73,12 @@ class AppUsageReportService
             });
         }
 
-        if ($userRole === Role::ROLE_EMPLOYEE && $employeeGovernorates) {
-            $allowedIds = $this->parseGovernorates($employeeGovernorates);
-            $query->whereHas('trip', function ($query) use ($allowedIds) {
-                $query->whereIn('start_governorate_id', $allowedIds)
-                    ->orWhereIn('end_governorate_id', $allowedIds);
-            });
-        }
+        // employee-specific governorate filtering removed
 
         return $query->distinct('passenger_id')->count('passenger_id');
     }
 
-    private function countActiveDrivers(string $fromDate, string $toDate, ?int $governorateId, string $userRole, ?string $employeeGovernorates): int
+    private function countActiveDrivers(string $fromDate, string $toDate, ?int $governorateId, string $userRole): int
     {
         $query = Trip::query();
 
@@ -113,23 +106,14 @@ class AppUsageReportService
             });
         }
 
-        if ($userRole === Role::ROLE_EMPLOYEE && $employeeGovernorates) {
-            $allowedIds = $this->parseGovernorates($employeeGovernorates);
-            $query->where(function ($query) use ($allowedIds) {
-                $query->whereIn('start_governorate_id', $allowedIds)
-                    ->orWhereIn('end_governorate_id', $allowedIds);
-            });
-        }
+        // employee-specific governorate filtering removed
 
         return $query->distinct('driver_id')->count('driver_id');
     }
 
-    private function parseGovernorates(string $governorates): array
-    {
-        return array_values(array_filter(array_map('trim', explode(',', $governorates))));
-    }
+    
 
-    private function countNewUsers(string $fromDate, string $toDate, ?string $userType, ?int $governorateId, string $userRole, ?string $employeeGovernorates): int
+    private function countNewUsers(string $fromDate, string $toDate, ?string $userType, ?int $governorateId, string $userRole): int
     {
         $query = User::query()
             ->whereDate('created_at', '>=', $fromDate)
@@ -146,15 +130,12 @@ class AppUsageReportService
             // This might need adjustment based on business logic
         }
 
-        if ($userRole === Role::ROLE_EMPLOYEE && $employeeGovernorates) {
-            // Similar issue - new users don't have trips
-            // This might need to be handled differently
-        }
+        // employee-specific governorate filtering removed
 
         return $query->count();
     }
 
-    private function countCompletedBookings(string $fromDate, string $toDate, ?int $governorateId, string $userRole, ?string $employeeGovernorates): int
+    private function countCompletedBookings(string $fromDate, string $toDate, ?int $governorateId, string $userRole): int
     {
         $query = Booking::query()
             ->whereHas('trip', function ($q) {
@@ -172,18 +153,12 @@ class AppUsageReportService
             });
         }
 
-        if ($userRole === Role::ROLE_EMPLOYEE && $employeeGovernorates) {
-            $allowedIds = $this->parseGovernorates($employeeGovernorates);
-            $query->whereHas('trip', function ($q) use ($allowedIds) {
-                $q->whereIn('start_governorate_id', $allowedIds)
-                    ->orWhereIn('end_governorate_id', $allowedIds);
-            });
-        }
+        // employee-specific governorate filtering removed
 
         return $query->count();
     }
 
-    private function countTotalUsers(?string $userType, ?int $governorateId, string $userRole, ?string $employeeGovernorates): int
+    private function countTotalUsers(?string $userType, ?int $governorateId, string $userRole): int
     {
         $query = User::query();
 
@@ -201,13 +176,7 @@ class AppUsageReportService
             });
         }
 
-        if ($userRole === Role::ROLE_EMPLOYEE && $employeeGovernorates) {
-            $allowedIds = $this->parseGovernorates($employeeGovernorates);
-            $query->whereHas('trips', function ($q) use ($allowedIds) {
-                $q->whereIn('start_governorate_id', $allowedIds)
-                    ->orWhereIn('end_governorate_id', $allowedIds);
-            });
-        }
+        // employee-specific governorate filtering removed
 
         return $query->count();
     }
