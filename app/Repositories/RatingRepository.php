@@ -174,6 +174,53 @@ class RatingRepository
         ];
     }
 
+    public function getAdminRatingList(array $filters): array
+    {
+        $reviews = DriverReview::query()
+            ->with(['driver', 'passenger'])
+            ->where('rated_user_type', Role::ROLE_DRIVER);
+
+        if (($filters['user_type'] ?? null) === Role::ROLE_PASSENGER) {
+            if (! empty($filters['user_id'])) {
+                $reviews->where('passenger_id', $filters['user_id']);
+            }
+        } else {
+            if (! empty($filters['user_id'])) {
+                $reviews->where('driver_id', $filters['user_id']);
+            }
+        }
+
+        if (! empty($filters['from_date'])) {
+            $reviews->whereDate('created_at', '>=', $filters['from_date']);
+        }
+
+        if (! empty($filters['to_date'])) {
+            $reviews->whereDate('created_at', '<=', $filters['to_date']);
+        }
+
+        return (clone $reviews)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (DriverReview $review) use ($filters) {
+                $selectedUser = ($filters['user_type'] ?? null) === Role::ROLE_PASSENGER
+                    ? $review->passenger
+                    : $review->driver;
+
+                return [
+                    'rating_id' => $review->review_id,
+                    'rate_date' => $review->created_at?->toIso8601String(),
+                    'username' => $selectedUser?->full_name,
+                    'user_type' => $filters['user_type'] ?? Role::ROLE_DRIVER,
+                    'stars' => $review->rating,
+                    'comment' => $review->comment,
+                    'rating_status' => $review->is_visible ? 'visible' : 'hidden',
+                    'is_visible' => (bool) $review->is_visible,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     public function toggleRatingVisibility(int $ratingId, User $actor): DriverReview
     {
         $review = DriverReview::query()->findOrFail($ratingId);

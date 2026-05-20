@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\TripStatus;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -59,161 +60,108 @@ class PassengerManagementService
             ->paginate($filters['per_page'] ?? 15);
     }
 
-    public function getPassenger(int $id): array
+    public function getOwnProfile(User $user): array
+    {
+        return $this->buildPassengerProfile($user, true, true);
+    }
+
+    public function updateProfile(User $user, array $data): array
+    {
+        if (! empty($data['name'])) {
+            $user->full_name = $data['name'];
+        }
+
+        if (! empty($data['photo'])) {
+            $user->profile_photo = $this->toPublicStoragePath($this->storeProfilePhoto($data['photo']));
+        }
+
+        $user->save();
+
+        return $this->buildPassengerProfile($user, true, true);
+    }
+
+    public function getOtherPassengerProfile(int $id, bool $includeEmail = false, bool $includePhone = false): array
     {
         $user = $this->resolvePassenger($id);
 
-        $bookings = Booking::query()
-            ->with([
-                'trip.status',
-                'trip.startGovernorate',
-                'trip.endGovernorate',
-                'trip.points',
-                'trip.driver.user',
-                'status',
-            ])
-            ->where('passenger_id', $user->user_id)
-            ->orderByDesc('created_at')
-            ->get();
+        return $this->buildPassengerProfile($user, $includeEmail, $includePhone);
+    }
 
-        $complaints = Complaint::query()
-            ->with(['statusLogs.actor'])
-            ->where('complainant_id', $user->user_id)
-            ->orderByDesc('created_at')
-            ->get();
-
-        $adminActions = AuditLog::query()
-            ->with('actor')
-            ->where('entity_type', User::class)
-            ->where('entity_id', $user->user_id)
-            ->where(function ($query) {
-                $query->where('action', 'like', 'passenger.%')
-                    ->orWhere('action', 'like', 'user.status_%');
-            })
-            ->orderByDesc('created_at')
-            ->get();
-
-        $passengerRating = DriverReview::query()
-            ->where('passenger_id', $user->user_id)
-            ->where('rated_user_type', 'passenger')
-            ->selectRaw('COUNT(*) as total, AVG(rating) as avg')
-            ->first();
-
-        $averageRating = $passengerRating && (int) $passengerRating->total > 0
-            ? round((float) $passengerRating->avg, 2)
-            : (float) $user->rating;
-
-        $bookingRows = $bookings->map(fn (Booking $booking) => $this->transformPassengerBookingRow($booking))->values();
-        $bookingCounts = $this->buildBookingCounts($bookingRows);
-
-        $complaintRows = $complaints->map(fn (Complaint $complaint) => $this->transformComplaintRow($complaint))->values();
-        $openComplaintsCount = $complaintRows->filter(
-            fn (array $row) => in_array($row['status'], ['pending', 'under_review'], true)
-        )->count();
-        $resolvedComplaintsCount = $complaintRows->where('status', 'resolved')->count();
-
-        $adminActionRows = $adminActions->map(fn (AuditLog $log) => $this->transformAdminActionRow($log))->values();
-
-        $completedTripStatuses = [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED];
-
-        $legacyBookings = $bookings->map(function (Booking $booking) {
-            $durationMinutes = (int) ($booking->trip?->estimated_duration_minutes ?? 0);
-
-            return [
-                'booking_id' => $booking->booking_id,
-                'trip_id' => $booking->trip_id,
-                'date' => $booking->trip?->departure_time?->toIso8601String() ?? $booking->created_at?->toIso8601String(),
-                'period' => [
-                    'minutes' => $durationMinutes,
-                    'text' => $this->formatDuration($durationMinutes),
-                ],
-                'type' => $booking->booking_type,
-                'status' => [
-                    'key' => $booking->status?->status_key,
-                    'name' => $booking->status?->status_name,
-                ],
-                'payment_method' => $booking->payment_method,
-                'route' => [
-                    'from' => $booking->trip?->startGovernorate?->name,
-                    'to' => $booking->trip?->endGovernorate?->name,
-                ],
-            ];
-        })->values();
+    private function buildPassengerProfile(User $user, bool $includeEmail = false, bool $includePhone = false): array
+    {
+        $counts = $this->buildPassengerReservationCounts($user);
 
         return [
-            'basic_information' => [
-                'full_name' => $user->full_name,
-                'mobile_number' => $user->phone,
-                'account_status' => $this->resolvePassengerStatus((int) $user->account_status),
-                'created_at' => $user->created_at?->toIso8601String(),
-                'average_rating' => $averageRating,
-                'completed_trips_count' => $bookings
-                    ->filter(fn (Booking $booking) => in_array($booking->trip?->status?->status_key, $completedTripStatuses, true))
-                    ->pluck('trip_id')
-                    ->filter()
-                    ->unique()
-                    ->count(),
-                'cancelled_trips_count' => $bookings
-                    ->filter(fn (Booking $booking) => $booking->trip?->status?->status_key === TripStatus::CANCELED)
-                    ->pluck('trip_id')
-                    ->filter()
-                    ->unique()
-                    ->count(),
-                'profile_photo' => $user->profile_photo,
-                'email' => $user->email,
-            ],
-            'bookings_history' => [
-                'bookings' => $bookingRows,
-                ...$bookingCounts,
-            ],
-            'complaints' => [
-                'items' => $complaintRows,
-                'total_complaints_count' => $complaintRows->count(),
-                'open_complaints_count' => $openComplaintsCount,
-                'resolved_complaints_count' => $resolvedComplaintsCount,
-            ],
-            'admin_action_log' => [
-                'actions' => $adminActionRows,
-            ],
-
-            // Backward compatibility for existing clients/tests.
-            'account_details' => [
-                'id' => $user->user_id,
-                'name' => $user->full_name,
-                'phone' => $user->phone,
-                'email' => $user->email,
-                'wallet_amount' => $user->wallet?->balance !== null ? (float) $user->wallet->balance : 0.0,
-                'completed_trips_count' => $bookings
-                    ->filter(fn (Booking $booking) => in_array($booking->trip?->status?->status_key, $completedTripStatuses, true))
-                    ->pluck('trip_id')
-                    ->filter()
-                    ->unique()
-                    ->count(),
-                'completed_bookings_count' => $bookings
-                    ->filter(fn (Booking $booking) => $booking->status?->status_key === 'completed')
-                    ->count(),
-                'cancelled_trips_count' => $bookings
-                    ->filter(fn (Booking $booking) => $booking->trip?->status?->status_key === TripStatus::CANCELED)
-                    ->pluck('trip_id')
-                    ->filter()
-                    ->unique()
-                    ->count(),
-                'cancelled_bookings_count' => $bookings
-                    ->filter(fn (Booking $booking) => in_array($booking->status?->status_key, ['canceled', 'rejected'], true))
-                    ->count(),
-            ],
-            'account_info' => [
-                'status' => [
-                    'value' => $user->account_status,
-                    'text' => $user->account_status_text,
-                ],
-                'registration_method' => $user->registration_type,
-                'registration_method_text' => $user->registration_type_text,
-                'created_at' => $user->created_at?->toIso8601String(),
-                'number_of_complaints' => $complaintRows->count(),
-            ],
-            'bookings' => $legacyBookings,
+            'photo' => $this->absoluteFileUrl($user->profile_photo),
+            'name' => $user->full_name,
+            'email' => $includeEmail ? $user->email : null,
+            'phone_number' => $includePhone ? $user->phone : null,
+            'cancelled_reservations_count' => $counts['cancelled'],
+            'completed_reservations_count' => $counts['completed'],
+            'rating' => $this->buildPassengerRating($user),
         ];
+    }
+
+    private function buildPassengerReservationCounts(User $user): array
+    {
+        $base = Booking::query()->where('passenger_id', $user->user_id);
+
+        $completed = (clone $base)
+            ->where(function ($query) {
+                $query->whereHas('status', fn ($q) => $q->where('status_key', 'completed'))
+                    ->orWhereHas('trip.status', fn ($q) => $q->whereIn('status_key', [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED]));
+            })
+            ->count();
+
+        $cancelled = (clone $base)
+            ->where(function ($query) {
+                $query->whereHas('status', fn ($q) => $q->whereIn('status_key', ['canceled', 'rejected']))
+                    ->orWhereHas('trip.status', fn ($q) => $q->where('status_key', TripStatus::CANCELED));
+            })
+            ->count();
+
+        return [
+            'completed' => $completed,
+            'cancelled' => $cancelled,
+        ];
+    }
+
+    private function buildPassengerRating(User $user): float
+    {
+        $rating = DriverReview::query()
+            ->where('passenger_id', $user->user_id)
+            ->where('rated_user_type', Role::ROLE_PASSENGER)
+            ->where('is_visible', true)
+            ->avg('rating');
+
+        return $rating !== null ? round((float) $rating, 2) : 0.0;
+    }
+
+    private function storeProfilePhoto(UploadedFile $photo): string
+    {
+        return $photo->store('passengers/profile-photos', 'public');
+    }
+
+    private function toPublicStoragePath(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        return 'storage/'.$path;
+    }
+
+    private function absoluteFileUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
+
+        return url('/'.ltrim($path, '/'));
     }
 
     public function toggleStatus(int $id, User $actor): User

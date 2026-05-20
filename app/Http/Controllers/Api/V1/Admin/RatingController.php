@@ -30,6 +30,21 @@ class RatingController extends Controller
         }
     }
 
+    public function listRatings(RatingFilterRequest $request)
+    {
+        try {
+            return ApiResponse::success(
+                'Rating list retrieved successfully.',
+                200,
+                $this->tripRatingService->getAdminRatingsList($request->validated())
+            );
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('Unexpected error while retrieving rating list.', 500);
+        }
+    }
+
     public function hide(int $ratingId)
     {
         try {
