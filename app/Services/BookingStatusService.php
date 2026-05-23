@@ -10,12 +10,20 @@ class BookingStatusService
 {
     public function list(): array
     {
-        $statuses = $this->resolveStatuses();
+        $statuses = $this->resolveStatuses()
+            ->prepend([
+                'id' => null,
+                'key' => 'all',
+                'name' => 'الكل',
+                'description' => 'عرض جميع حالات الحجز.',
+                'is_final' => false,
+                'display_order' => 0,
+            ]);
 
         return [
             'items' => $statuses
                 ->map(fn (array $status, int $index) => [
-                    'id' => $status['id'] ?? ($index + 1),
+                    'id' => $status['id'] ?? ($status['key'] === 'all' ? 0 : $index + 1),
                     'key' => $status['key'],
                     'name' => $status['name'],
                     'description' => $status['description'],
@@ -107,6 +115,7 @@ class BookingStatusService
     private function resolveColor(string $statusKey): string
     {
         return match ($statusKey) {
+            'all' => '#334155',
             'accepted' => '#10b981',
             'rejected' => '#ef4444',
             'canceled' => '#64748b',

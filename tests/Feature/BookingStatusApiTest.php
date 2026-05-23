@@ -50,8 +50,11 @@ class BookingStatusApiTest extends TestCase
 
         $this->getJson('/api/v1/booking-statuses')
             ->assertOk()
-            ->assertJsonPath('data.items.0.key', 'accepted')
-            ->assertJsonPath('data.items.0.color', '#10b981')
+            ->assertJsonPath('data.items.0.key', 'all')
+            ->assertJsonPath('data.items.0.name', 'الكل')
+            ->assertJsonPath('data.items.0.color', '#334155')
+            ->assertJsonPath('data.items.1.key', 'accepted')
+            ->assertJsonPath('data.items.1.color', '#10b981')
             ->assertJsonFragment(['key' => 'canceled'])
             ->assertJsonMissing(['key' => 'pending'])
             ->assertJsonMissing(['key' => 'archived']);
@@ -61,10 +64,11 @@ class BookingStatusApiTest extends TestCase
     {
         $this->getJson('/api/v1/booking-statuses')
             ->assertOk()
-            ->assertJsonPath('data.items.0.key', 'accepted')
-            ->assertJsonPath('data.items.1.key', 'rejected')
-            ->assertJsonPath('data.items.2.key', 'canceled')
-            ->assertJsonPath('data.items.3.key', 'completed')
+            ->assertJsonPath('data.items.0.key', 'all')
+            ->assertJsonPath('data.items.1.key', 'accepted')
+            ->assertJsonPath('data.items.2.key', 'rejected')
+            ->assertJsonPath('data.items.3.key', 'canceled')
+            ->assertJsonPath('data.items.4.key', 'completed')
             ->assertJsonMissing(['key' => 'pending']);
     }
 }
