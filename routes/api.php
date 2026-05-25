@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\V1\BookingStatusController;
 use App\Http\Controllers\Api\V1\ComplaintController;
 use App\Http\Controllers\Api\V1\Driver\ComplaintController as DriverComplaintController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
+use App\Http\Controllers\Api\V1\Driver\FinancialReportController as DriverFinancialReportController;
 use App\Http\Controllers\Api\V1\Driver\RatingController as DriverRatingController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\ProfileController as DriverProfileController;
@@ -130,6 +131,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/reports/trips-by-governorates', [AdminReportController::class, 'tripsByGovernorates']);
        //money
         Route::get('/reports/revenue', [AdminReportController::class, 'revenue']);
+        Route::get('/reports/driver-earnings', [AdminReportController::class, 'driverEarnings']);
         // profile
         Route::get('/me', [AdminProfileController::class, 'show']);
 
@@ -224,6 +226,7 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/complaints', [DriverComplaintController::class, 'index']);
         // ratings
         Route::get('/rating', [DriverRatingController::class, 'show']);
+        Route::get('/reports/financial', [DriverFinancialReportController::class, 'show']);
         
         //receipts
         Route::get('/receipts', [DriverReceiptController::class, 'index']);
