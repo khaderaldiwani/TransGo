@@ -99,13 +99,36 @@ class RatingRepository
             ])
             ->where('rated_user_type', Role::ROLE_DRIVER);
 
+        // Filter by user type and optional id
         if (($filters['user_type'] ?? null) === Role::ROLE_PASSENGER) {
             if (! empty($filters['user_id'])) {
                 $reviews->where('passenger_id', $filters['user_id']);
             }
+
+            // filter by name/number on passenger
+            if (! empty($filters['name'])) {
+                $name = $filters['name'];
+                $reviews->whereHas('passenger', fn ($q) => $q->where('full_name', 'like', "%{$name}%"));
+            }
+
+            if (! empty($filters['number'])) {
+                $number = $filters['number'];
+                $reviews->whereHas('passenger', fn ($q) => $q->where('phone', 'like', "%{$number}%"));
+            }
         } else {
             if (! empty($filters['user_id'])) {
                 $reviews->where('driver_id', $filters['user_id']);
+            }
+
+            // filter by name/number on driver
+            if (! empty($filters['name'])) {
+                $name = $filters['name'];
+                $reviews->whereHas('driver', fn ($q) => $q->where('full_name', 'like', "%{$name}%"));
+            }
+
+            if (! empty($filters['number'])) {
+                $number = $filters['number'];
+                $reviews->whereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$number}%"));
             }
         }
 
@@ -184,9 +207,29 @@ class RatingRepository
             if (! empty($filters['user_id'])) {
                 $reviews->where('passenger_id', $filters['user_id']);
             }
+
+            if (! empty($filters['name'])) {
+                $name = $filters['name'];
+                $reviews->whereHas('passenger', fn ($q) => $q->where('full_name', 'like', "%{$name}%"));
+            }
+
+            if (! empty($filters['number'])) {
+                $number = $filters['number'];
+                $reviews->whereHas('passenger', fn ($q) => $q->where('phone', 'like', "%{$number}%"));
+            }
         } else {
             if (! empty($filters['user_id'])) {
                 $reviews->where('driver_id', $filters['user_id']);
+            }
+
+            if (! empty($filters['name'])) {
+                $name = $filters['name'];
+                $reviews->whereHas('driver', fn ($q) => $q->where('full_name', 'like', "%{$name}%"));
+            }
+
+            if (! empty($filters['number'])) {
+                $number = $filters['number'];
+                $reviews->whereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$number}%"));
             }
         }
 
@@ -211,6 +254,7 @@ class RatingRepository
                     'rate_date' => $review->created_at?->toIso8601String(),
                     'username' => $selectedUser?->full_name,
                     'user_type' => $filters['user_type'] ?? Role::ROLE_DRIVER,
+                    'number' => $selectedUser?->phone,
                     'stars' => $review->rating,
                     'comment' => $review->comment,
                     'rating_status' => $review->is_visible ? 'visible' : 'hidden',
