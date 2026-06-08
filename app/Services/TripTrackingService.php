@@ -2,8 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Booking;
+use App\Models\Notification;
+use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripLiveLocation;
+use App\Models\TripPoint;
+use App\Models\TripPointNotificationLog;
 use App\Models\TripStatus;
 use App\Models\User;
 use Carbon\Carbon;
@@ -14,6 +19,13 @@ use RuntimeException;
 
 class TripTrackingService
 {
+    private const APPROACH_DISTANCE_KM = 5.0;
+    private const ARRIVAL_DISTANCE_KM = 0.15;
+
+    public function __construct(private readonly NotificationDispatchService $notifications)
+    {
+    }
+
     public function activateTracking(Trip $trip, ?Carbon $startedAt = null): void
     {
         $trip->forceFill([
@@ -88,6 +100,8 @@ class TripTrackingService
 
         $data = $this->getDriverTripTracking($tripId, $actor, 100);
         $data['stored_location_id'] = $storedLocation->location_id;
+
+        $this->notifyRoutePointProgress($tripId, $actor, $storedLocation);
 
         return $data;
     }
@@ -248,6 +262,135 @@ class TripTrackingService
             'last_accuracy_meters' => $location->accuracy_meters,
             'last_location_at' => $location->recorded_at,
         ])->save();
+    }
+
+    private function notifyRoutePointProgress(int $tripId, User $actor, TripLiveLocation $location): void
+    {
+        $trip = Trip::query()
+            ->with([
+                'points',
+                'bookings.status',
+                'bookings.pickupPoint',
+            ])
+            ->where('trip_id', $tripId)
+            ->first();
+
+        if (! $trip) {
+            return;
+        }
+
+        $points = $trip->points
+            ->filter(fn (TripPoint $point) => $point->point_type !== 'start')
+            ->values();
+
+        foreach ($points as $point) {
+            $distanceKm = $this->distanceKm(
+                (float) $location->latitude,
+                (float) $location->longitude,
+                (float) $point->latitude,
+                (float) $point->longitude
+            );
+
+            if ($distanceKm <= self::APPROACH_DISTANCE_KM) {
+                $this->notifyPointOnce($trip, $point, $actor, 'trip_point_approaching', $distanceKm);
+            }
+
+            if ($distanceKm <= self::ARRIVAL_DISTANCE_KM) {
+                $this->notifyPointOnce($trip, $point, $actor, 'trip_point_arrived', $distanceKm);
+            }
+        }
+    }
+
+    private function notifyPointOnce(
+        Trip $trip,
+        TripPoint $point,
+        User $actor,
+        string $notificationType,
+        float $distanceKm
+    ): void {
+        $log = TripPointNotificationLog::firstOrCreate(
+            [
+                'trip_id' => $trip->trip_id,
+                'point_id' => $point->point_id,
+                'notification_type' => $notificationType,
+            ],
+            [
+                'triggered_at' => now(),
+            ]
+        );
+
+        if (! $log->wasRecentlyCreated) {
+            return;
+        }
+
+        $isArrival = $notificationType === 'trip_point_arrived';
+        $pointName = $point->address ?: $point->note ?: 'نقطة التوقف';
+        $title = $isArrival ? 'تم الوصول إلى نقطة توقف' : 'اقتربت الرحلة من نقطة توقف';
+        $body = $isArrival
+            ? "وصلت الرحلة رقم {$trip->trip_id} إلى {$pointName}."
+            : "اقتربت الرحلة رقم {$trip->trip_id} من {$pointName} بمسافة أقل من 5 كم.";
+
+        $notification = Notification::create([
+            'title' => $title,
+            'body' => $body,
+            'notification_type' => $notificationType,
+            'reference_type' => 'trip_point',
+            'reference_id' => $point->point_id,
+            'created_by' => $actor->user_id,
+            'target_role' => Role::ROLE_PASSENGER,
+        ]);
+
+        $passengerIds = $trip->bookings
+            ->filter(fn (Booking $booking) => ! in_array($booking->status?->status_key, ['canceled', 'rejected'], true))
+            ->filter(fn (Booking $booking) => (int) ($booking->pickupPoint?->trip_point_id ?? 0) === (int) $point->point_id)
+            ->pluck('passenger_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($passengerIds->isEmpty()) {
+            $passengerIds = $trip->bookings
+                ->filter(fn (Booking $booking) => ! in_array($booking->status?->status_key, ['canceled', 'rejected'], true))
+                ->pluck('passenger_id')
+                ->filter()
+                ->unique()
+                ->values();
+        }
+
+        $data = [
+            'trip_id' => $trip->trip_id,
+            'point_id' => $point->point_id,
+            'point_type' => $point->point_type,
+            'distance_km' => round($distanceKm, 3),
+        ];
+
+        $this->notifications->sendExistingToUsers($notification, $passengerIds, $data);
+
+        if ($trip->driver_id) {
+            $driverNotification = Notification::create([
+                'title' => $title,
+                'body' => $body,
+                'notification_type' => 'driver_'.$notificationType,
+                'reference_type' => 'trip_point',
+                'reference_id' => $point->point_id,
+                'created_by' => $actor->user_id,
+                'target_role' => Role::ROLE_DRIVER,
+            ]);
+
+            $this->notifications->sendExistingToUser($driverNotification, $trip->driver_id, $data);
+        }
+    }
+
+    private function distanceKm(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earthRadiusKm = 6371.0;
+        $latDelta = deg2rad($lat2 - $lat1);
+        $lonDelta = deg2rad($lon2 - $lon1);
+
+        $a = sin($latDelta / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($lonDelta / 2) ** 2;
+
+        return $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     private function ensureTrackingCanAcceptLocations(Trip $trip): void

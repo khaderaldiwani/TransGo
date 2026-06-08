@@ -47,4 +47,13 @@ return [
         'timeout' => (int) env('GOOGLE_GEOCODING_TIMEOUT', 15),
     ],
 
+    'firebase' => [
+        'enabled' => (bool) env('FIREBASE_ENABLED', false),
+        'project_id' => env('FIREBASE_PROJECT_ID'),
+        'credentials' => env('FIREBASE_CREDENTIALS'),
+        'credentials_json' => env('FIREBASE_CREDENTIALS_JSON'),
+        'credentials_base64' => env('FIREBASE_CREDENTIALS_BASE64'),
+        'timeout' => (int) env('FIREBASE_TIMEOUT', 15),
+    ],
+
 ];
