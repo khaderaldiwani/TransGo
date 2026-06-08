@@ -87,6 +87,14 @@ class PassengerManagementService
         return $this->buildPassengerProfile($user, $includeEmail, $includePhone);
     }
 
+    public function getPassenger(int $id): array
+    {
+        $user = $this->resolvePassenger($id);
+
+        // Return the passenger profile including email and phone for admin views.
+        return $this->buildPassengerProfile($user, true, true);
+    }
+
     private function buildPassengerProfile(User $user, bool $includeEmail = false, bool $includePhone = false): array
     {
         $counts = $this->buildPassengerReservationCounts($user);

@@ -26,6 +26,8 @@ class RatingFilterRequest extends FormRequest
         return [
             'user_type' => ['required', 'string', Rule::in(['passenger', 'driver'])],
             'user_id' => ['nullable', 'integer', 'exists:users,user_id'],
+            'name' => ['nullable', 'string'],
+            'number' => ['nullable', 'string'],
             'from_date' => ['nullable', 'date'],
             'to_date' => ['nullable', 'date', 'after_or_equal:from_date'],
         ];
