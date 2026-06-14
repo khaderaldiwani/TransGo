@@ -1,2 +1,4 @@
 *
+!governorates/
+!governorates/*.jpg
 !.gitignore
