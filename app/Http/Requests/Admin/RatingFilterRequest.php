@@ -12,13 +12,24 @@ class RatingFilterRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
+    public function validationData(): array
     {
-        if ($this->has('user_id') && $this->input('user_id') !== null && $this->input('user_id') !== '') {
-            $this->merge([
-                'user_id' => (int) $this->input('user_id'),
-            ]);
+        $data = parent::validationData();
+
+        $data = array_merge($data, [
+            'user_type' => $this->header('user_type') ?? $this->header('x-user-type') ?? $data['user_type'] ?? null,
+            'user_id' => $this->header('user_id') ?? $this->header('x-user-id') ?? $data['user_id'] ?? null,
+            'name' => $this->header('name') ?? $this->header('x-name') ?? $data['name'] ?? null,
+            'number' => $this->header('number') ?? $this->header('x-number') ?? $data['number'] ?? null,
+            'from_date' => $this->header('from_date') ?? $this->header('x-from-date') ?? $data['from_date'] ?? null,
+            'to_date' => $this->header('to_date') ?? $this->header('x-to-date') ?? $data['to_date'] ?? null,
+        ]);
+
+        if (isset($data['user_id']) && $data['user_id'] !== null && $data['user_id'] !== '') {
+            $data['user_id'] = (int) $data['user_id'];
         }
+
+        return $data;
     }
 
     public function rules(): array
@@ -33,3 +44,5 @@ class RatingFilterRequest extends FormRequest
         ];
     }
 }
+
+
