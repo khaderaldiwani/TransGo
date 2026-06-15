@@ -91,8 +91,34 @@ class PassengerManagementService
     {
         $user = $this->resolvePassenger($id);
 
-        // Return the passenger profile including email and phone for admin views.
-        return $this->buildPassengerProfile($user, true, true);
+        // Build response matching admin passenger detail contract
+        return [
+            'user_id' => $user->user_id,
+            'full_name' => $user->full_name,
+            'phone' => $user->phone,
+            'email' => $user->email,
+            'must_change_password' => (bool) $user->must_change_password,
+            'account_status' => $user->account_status,
+            'rating' => $user->rating !== null ? number_format((float) $user->rating, 2, '.', '') : number_format(0, 2, '.', ''),
+            'rating_last_updated' => $user->rating_last_updated ? $user->rating_last_updated->toIso8601String() : null,
+            'created_by' => $user->created_by,
+            'registration_type' => $user->registration_type,
+            'created_at' => $user->created_at?->toIso8601String(),
+            'updated_at' => $user->updated_at?->toIso8601String(),
+            'roles' => $user->roles->map(function ($role) use ($user) {
+                return [
+                    'id' => $role->id ?? $role->role_id ?? null,
+                    'name' => $role->name,
+                    'created_at' => $role->created_at?->toIso8601String(),
+                    'updated_at' => $role->updated_at?->toIso8601String(),
+                    'pivot' => [
+                        'user_id' => $user->user_id,
+                        'role_id' => $role->id ?? $role->role_id ?? null,
+                    ],
+                ];
+            })->toArray(),
+            'wallet' => $user->wallet ? $user->wallet->toArray() : null,
+        ];
     }
 
     private function buildPassengerProfile(User $user, bool $includeEmail = false, bool $includePhone = false): array
