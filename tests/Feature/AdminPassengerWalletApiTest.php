@@ -76,6 +76,38 @@ class AdminPassengerWalletApiTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_send_general_passenger_notification(): void
+    {
+        config(['services.firebase.enabled' => false]);
+
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin Notify', 'admin-notify@example.com');
+        $passenger = $this->createPassenger('Passenger Notify', 'passenger-notify@example.com');
+
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/admin/notifications', [
+            'title' => 'تنبيه إداري',
+            'body' => 'رسالة اختبار من الإدارة.',
+            'target_role' => Role::ROLE_PASSENGER,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.target_topic', 'passengers')
+            ->assertJsonPath('data.target_users_count', 1)
+            ->assertJsonPath('data.fcm.skipped', true);
+
+        $this->assertDatabaseHas('notifications', [
+            'title' => 'تنبيه إداري',
+            'notification_type' => 'admin_general',
+            'target_role' => Role::ROLE_PASSENGER,
+            'created_by' => $admin->user_id,
+        ]);
+
+        $this->assertDatabaseHas('user_notifications', [
+            'user_id' => $passenger->user_id,
+            'is_sent' => true,
+        ]);
+    }
+
     public function test_admin_top_up_creates_wallet_for_passenger_if_missing(): void
     {
         $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin-create-wallet@example.com');

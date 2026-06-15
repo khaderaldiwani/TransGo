@@ -7,19 +7,18 @@ use App\Models\UserNotification;
 
 class UserNotificationService
 {
+    public function __construct(private readonly NotificationDispatchService $notifications)
+    {
+    }
+
     public function notifyUser(int $userId, array $notificationData, bool $markAsSent = true): UserNotification
     {
+        if ($markAsSent) {
+            return $this->notifications->notifyUser($userId, $notificationData);
+        }
+
         $notification = Notification::create($notificationData);
 
-        return UserNotification::firstOrCreate(
-            [
-                'notification_id' => $notification->notification_id,
-                'user_id' => $userId,
-            ],
-            [
-                'is_sent' => $markAsSent,
-                'sent_at' => $markAsSent ? now() : null,
-            ]
-        );
+        return $this->notifications->attachUser($notification, $userId, false);
     }
 }

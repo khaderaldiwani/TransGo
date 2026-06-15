@@ -16,7 +16,6 @@ use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripStatus;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use Carbon\Carbon;
@@ -31,7 +30,8 @@ class DriverBookingManagementService
 {
     public function __construct(
         private readonly ReceiptService $receiptService,
-        private readonly TripClusterService $tripClusterService
+        private readonly TripClusterService $tripClusterService,
+        private readonly NotificationDispatchService $notifications
     ) {
     }
 
@@ -1053,16 +1053,6 @@ class DriverBookingManagementService
 
     private function sendNotificationToUser(Notification $notification, int $userId): void
     {
-        UserNotification::firstOrCreate(
-            [
-                'notification_id' => $notification->notification_id,
-                'user_id' => $userId,
-            ],
-            [
-                'is_read' => false,
-                'is_sent' => true,
-                'sent_at' => now(),
-            ]
-        );
+        $this->notifications->sendExistingToUser($notification, $userId);
     }
 }

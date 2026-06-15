@@ -7,7 +7,7 @@ use App\Models\Booking;
 use App\Models\Notification;
 use App\Models\Role;
 use App\Models\Trip;
-use App\Models\UserNotification;
+use App\Services\NotificationDispatchService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
@@ -60,14 +60,15 @@ class AppServiceProvider extends ServiceProvider
                 'target_governorate_id' => $booking->pickupPoint?->governorate_id,
             ]);
 
-            UserNotification::firstOrCreate([
-                'notification_id' => $notification->notification_id,
-                'user_id' => $driverUser->user_id,
-            ], [
-                'is_read' => false,
-                'is_sent' => true,
-                'sent_at' => now(),
-            ]);
+            app(NotificationDispatchService::class)->sendExistingToUser(
+                $notification,
+                $driverUser->user_id,
+                [
+                    'booking_id' => $booking->booking_id,
+                    'booking_code' => $booking->booking_code,
+                    'trip_id' => $booking->trip_id,
+                ]
+            );
         });
     }
 }

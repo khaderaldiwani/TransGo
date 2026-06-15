@@ -13,7 +13,6 @@ use App\Models\Role;
 use App\Models\Trip;
 use App\Models\TripStatus;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use Carbon\Carbon;
@@ -36,7 +35,8 @@ class DriverTripManagementService
         private readonly AuditLogService $auditLogService,
         private readonly WalletTransactionService $walletTransactionService,
         private readonly TripTrackingService $tripTrackingService,
-        private readonly TripClusterService $tripClusterService
+        private readonly TripClusterService $tripClusterService,
+        private readonly NotificationDispatchService $notifications
     ) {
     }
 
@@ -243,16 +243,10 @@ class DriverTripManagementService
                         'target_role' => Role::ROLE_PASSENGER,
                     ]);
 
-                    UserNotification::firstOrCreate(
-                        [
-                            'notification_id' => $notification->notification_id,
-                            'user_id' => $booking->passenger_id,
-                        ],
-                        [
-                            'is_sent' => true,
-                            'sent_at' => now(),
-                        ]
-                    );
+                    $this->notifications->sendExistingToUser($notification, $booking->passenger_id, [
+                        'trip_id' => $trip->trip_id,
+                        'booking_id' => $booking->booking_id,
+                    ]);
                 }
             }
 
@@ -1332,16 +1326,9 @@ class DriverTripManagementService
         ]);
 
         foreach ($passengerIds as $passengerId) {
-            UserNotification::firstOrCreate(
-                [
-                    'notification_id' => $notification->notification_id,
-                    'user_id' => $passengerId,
-                ],
-                [
-                    'is_sent' => true,
-                    'sent_at' => now(),
-                ]
-            );
+            $this->notifications->sendExistingToUser($notification, (int) $passengerId, [
+                'trip_id' => $trip->trip_id,
+            ]);
         }
     }
 
@@ -1371,16 +1358,9 @@ class DriverTripManagementService
             ]);
 
             foreach ($passengerIds as $passengerId) {
-                UserNotification::firstOrCreate(
-                    [
-                        'notification_id' => $notification->notification_id,
-                        'user_id' => $passengerId,
-                    ],
-                    [
-                        'is_sent' => true,
-                        'sent_at' => now(),
-                    ]
-                );
+                $this->notifications->sendExistingToUser($notification, (int) $passengerId, [
+                    'trip_id' => $trip->trip_id,
+                ]);
             }
         }
 
@@ -1397,16 +1377,9 @@ class DriverTripManagementService
                 'target_role' => Role::ROLE_DRIVER,
             ]);
 
-            UserNotification::firstOrCreate(
-                [
-                    'notification_id' => $driverNotification->notification_id,
-                    'user_id' => $trip->driver_id,
-                ],
-                [
-                    'is_sent' => true,
-                    'sent_at' => now(),
-                ]
-            );
+            $this->notifications->sendExistingToUser($driverNotification, $trip->driver_id, [
+                'trip_id' => $trip->trip_id,
+            ]);
         }
     }
 }

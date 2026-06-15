@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\CommissionRateController;
 use App\Http\Controllers\Api\V1\Admin\ComplaintController as AdminComplaintController;
 use App\Http\Controllers\Api\V1\Admin\EmployeeController;
 use App\Http\Controllers\Api\V1\Admin\PassengerController;
+use App\Http\Controllers\Api\V1\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Api\V1\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\V1\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
@@ -27,12 +28,14 @@ use App\Http\Controllers\Api\V1\ComplaintController;
 use App\Http\Controllers\Api\V1\Driver\ComplaintController as DriverComplaintController;
 use App\Http\Controllers\Api\V1\Driver\DriverAuthController;
 use App\Http\Controllers\Api\V1\Driver\FinancialReportController as DriverFinancialReportController;
+use App\Http\Controllers\Api\V1\Driver\NotificationController as DriverNotificationController;
 use App\Http\Controllers\Api\V1\Driver\RatingController as DriverRatingController;
 use App\Http\Controllers\Api\V1\Driver\ReceiptController as DriverReceiptController;
 use App\Http\Controllers\Api\V1\Driver\ProfileController as DriverProfileController;
 use App\Http\Controllers\Api\V1\Driver\TripController;
 use App\Http\Controllers\Api\V1\Driver\WalletController as DriverWalletController;
 use App\Http\Controllers\Api\V1\Passenger\BookingController;
+use App\Http\Controllers\Api\V1\Passenger\NotificationController as PassengerNotificationController;
 use App\Http\Controllers\Api\V1\Passenger\ProfileController as PassengerProfileController;
 use App\Http\Controllers\Api\V1\Passenger\ComplaintController as PassengerComplaintController;
 use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
@@ -145,6 +148,8 @@ Route::prefix('v1/admin')->group(function () {
         
         // Complaint Report
         Route::get('/complaints/report', [ComplaintReportController::class, 'report']);
+        //
+        Route::post('/notifications', [AdminNotificationController::class, 'store']);
     });
 });
 
@@ -182,6 +187,8 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/wallet', [PassengerWalletController::class, 'show']);
         Route::get('/wallet/transactions', [PassengerWalletController::class, 'transactions']);
         Route::get('/wallet/transactions/{id}', [PassengerWalletController::class, 'showTransaction'])->whereNumber('id');
+        Route::get('/notifications', [PassengerNotificationController::class, 'index']);
+        Route::patch('/notifications/read-all', [PassengerNotificationController::class, 'readAll']);
 
         // profile
         Route::get('/me', [PassengerProfileController::class, 'show']);
@@ -235,6 +242,8 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/wallet', [DriverWalletController::class, 'show']);
         Route::get('/wallet/transactions', [DriverWalletController::class, 'transactions']);
         Route::get('/wallet/transactions/{id}', [DriverWalletController::class, 'showTransaction'])->whereNumber('id');
+        Route::get('/notifications', [DriverNotificationController::class, 'index']);
+        Route::patch('/notifications/read-all', [DriverNotificationController::class, 'readAll']);
 
         // profile
         Route::get('/me', [DriverProfileController::class, 'show']);
