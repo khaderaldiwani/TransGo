@@ -50,10 +50,13 @@ class TripStatusApiTest extends TestCase
 
         $this->getJson('/api/v1/trip-statuses')
             ->assertOk()
-            ->assertJsonPath('data.items.0.key', TripStatus::PENDING)
-            ->assertJsonPath('data.items.0.color', '#f59e0b')
-            ->assertJsonPath('data.items.0.name', 'قيد الانتظار')
-            ->assertJsonPath('data.items.1.key', TripStatus::ACTIVE)
+            ->assertJsonPath('data.items.0.key', 'all')
+            ->assertJsonPath('data.items.0.name', 'الكل')
+            ->assertJsonPath('data.items.0.color', '#334155')
+            ->assertJsonPath('data.items.1.key', TripStatus::PENDING)
+            ->assertJsonPath('data.items.1.color', '#f59e0b')
+            ->assertJsonPath('data.items.1.name', 'قيد الانتظار')
+            ->assertJsonPath('data.items.2.key', TripStatus::ACTIVE)
             ->assertJsonFragment(['key' => TripStatus::CANCELED])
             ->assertJsonMissing(['key' => TripStatus::AUTO_COMPLETED])
             ->assertJsonMissing(['key' => 'archived']);
@@ -63,11 +66,12 @@ class TripStatusApiTest extends TestCase
     {
         $this->getJson('/api/v1/trip-statuses')
             ->assertOk()
-            ->assertJsonPath('data.items.0.key', TripStatus::PENDING)
-            ->assertJsonPath('data.items.0.name', 'قيد الانتظار')
-            ->assertJsonPath('data.items.1.key', TripStatus::ACTIVE)
-            ->assertJsonPath('data.items.2.key', TripStatus::COMPLETED)
-            ->assertJsonPath('data.items.3.key', TripStatus::CANCELED)
+            ->assertJsonPath('data.items.0.key', 'all')
+            ->assertJsonPath('data.items.1.key', TripStatus::PENDING)
+            ->assertJsonPath('data.items.1.name', 'قيد الانتظار')
+            ->assertJsonPath('data.items.2.key', TripStatus::ACTIVE)
+            ->assertJsonPath('data.items.3.key', TripStatus::COMPLETED)
+            ->assertJsonPath('data.items.4.key', TripStatus::CANCELED)
             ->assertJsonMissing(['key' => TripStatus::AUTO_COMPLETED]);
     }
 }

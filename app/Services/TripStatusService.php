@@ -10,12 +10,20 @@ class TripStatusService
 {
     public function list(): array
     {
-        $statuses = $this->resolveStatuses();
+        $statuses = $this->resolveStatuses()
+            ->prepend([
+                'id' => null,
+                'key' => 'all',
+                'name' => 'الكل',
+                'description' => 'عرض جميع حالات الرحلة.',
+                'is_final' => false,
+                'display_order' => 0,
+            ]);
 
         return [
             'items' => $statuses
                 ->map(fn (array $status, int $index) => [
-                    'id' => $status['id'] ?? ($index + 1),
+                    'id' => $status['id'] ?? ($status['key'] === 'all' ? 0 : $index + 1),
                     'key' => $status['key'],
                     'name' => $status['name'],
                     'description' => $status['description'],
@@ -107,6 +115,7 @@ class TripStatusService
     private function resolveColor(string $statusKey): string
     {
         return match ($statusKey) {
+            'all' => '#334155',
             TripStatus::PENDING => '#f59e0b',
             TripStatus::ACTIVE => '#0ea5e9',
             TripStatus::COMPLETED => '#10b981',
