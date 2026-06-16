@@ -11,8 +11,10 @@ return new class extends Migration
             return;
         }
 
-        DB::statement('ALTER TABLE commission_rates MODIFY effective_from DATETIME(6) NOT NULL');
-        DB::statement('ALTER TABLE commission_rates MODIFY effective_to DATETIME(6) NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE commission_rates MODIFY effective_from DATETIME(6) NOT NULL');
+            DB::statement('ALTER TABLE commission_rates MODIFY effective_to DATETIME(6) NULL');
+        }
 
         $rates = DB::table('commission_rates')
             ->orderBy('effective_from')
@@ -46,7 +48,9 @@ return new class extends Migration
             return;
         }
 
-        DB::statement('ALTER TABLE commission_rates MODIFY effective_from TIMESTAMP(6) NOT NULL');
-        DB::statement('ALTER TABLE commission_rates MODIFY effective_to TIMESTAMP(6) NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE commission_rates MODIFY effective_from TIMESTAMP(6) NOT NULL');
+            DB::statement('ALTER TABLE commission_rates MODIFY effective_to TIMESTAMP(6) NULL');
+        }
     }
 };
