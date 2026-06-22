@@ -17,7 +17,7 @@ class BookingController extends Controller
     {
     }
 
-    public function index(BookingFilterRequest $request)
+    public function index(BookingFilterRequest $request) // get all bookings with filters
     {
         try {
             return ApiResponse::success(

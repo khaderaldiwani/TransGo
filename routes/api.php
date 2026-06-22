@@ -83,19 +83,20 @@ Route::prefix('v1/admin')->group(function () {
         Route::patch('/employees/{id}/enable', [EmployeeController::class, 'enable']);
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         
-        // Drivers Apis 
+        // Drivers Apis  ----
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/low-rated', [AdminRatingController::class, 'lowRatedDrivers']);
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
-        ///////
+        // except this 
         Route::post('/drivers', [DriverController::class, 'store']);
-        // disable or enable driver account
+        // disable or enable driver account ----
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
-        // Passengers Apis  + reports
+        // Passengers Apis  + reports ----
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
+
         //wallet top-up history for both drivers and passengers
         Route::post('/drivers/{id}/wallet/top-up', [DriverController::class, 'topUpWallet']);
         Route::get('/driver-wallet-topups', [DriverController::class, 'driverWalletTopUps']);
@@ -117,11 +118,13 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/trips/{id}', [AdminTripController::class, 'show'])->whereNumber('id');
         Route::get('/trips/delayed', [AdminTripController::class, 'delayed']);
         Route::post('/trips/{id}/cancel', [AdminTripController::class, 'cancel'])->whereNumber('id');
-        Route::get('/bookings', [AdminBookingController::class, 'index']);
-        Route::get('/bookings/{bookingId}', [AdminBookingController::class, 'show']);
+
+        // Bookings management apis ---- 
+        Route::get('/bookings', [AdminBookingController::class, 'index']); // get all bookings with filters
+        Route::get('/bookings/{bookingId}', [AdminBookingController::class, 'show']); // get booking details by ID
         Route::patch('/bookings/{bookingId}/status', [AdminBookingController::class, 'updateStatus']);
      
-         // Complaints
+         // Complaints ----
         Route::get('/complaints', [AdminComplaintController::class, 'index']);
         Route::get('/complaints/{complaintId}', [AdminComplaintController::class, 'show'])->whereNumber('complaintId');
         Route::patch('/complaints/{complaintId}/status', [AdminComplaintController::class, 'updateStatus']);
@@ -130,23 +133,25 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/ratings/list', [AdminRatingController::class, 'listRatings']);
         Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
     
-        //reports
+        //reports 
         Route::get('/reports/trips-by-governorates', [AdminReportController::class, 'tripsByGovernorates']);
        //money
         Route::get('/reports/revenue', [AdminReportController::class, 'revenue']);
         Route::get('/reports/driver-earnings', [AdminReportController::class, 'driverEarnings']);
-        // profile
+
+
+        // profile APIS - ----
         Route::get('/me', [AdminProfileController::class, 'show']);
 
         
-        // Driver Performance Report
+        // Driver Performance Report ----
         Route::get('/driver-performance/report', [DriverPerformanceController::class, 'report']);
         Route::get('/driver-performance/export', [DriverPerformanceController::class, 'export']);
         
-        // Application Usage Report
+        // Application Usage Report ----
         Route::get('/app-usage/report', [AppUsageReportController::class, 'report']);
         
-        // Complaint Report
+        // Complaint Report ----
         Route::get('/complaints/report', [ComplaintReportController::class, 'report']);
         //
         Route::post('/notifications', [AdminNotificationController::class, 'store']);
@@ -167,6 +172,8 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/trips/{id}', [PassengerTripController::class, 'show'])->whereNumber('id');
         Route::get('/trip-categories', [PassengerTripController::class, 'categories']);
         Route::get('/trip-categories/{governorateId}/trips', [PassengerTripController::class, 'categoryTrips'])->whereNumber('governorateId');
+
+        // ---- Bookings ----
         Route::get('/bookings', [BookingController::class, 'index']);
         Route::get('/trips/{tripId}/bookings', [BookingController::class, 'byTrip'])->whereNumber('tripId');
         Route::get('/bookings/{id}', [BookingController::class, 'show'])->whereNumber('id');
@@ -175,7 +182,7 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
         Route::post('/rate-trip/{tripId}', [PassengerRatingController::class, 'store'])->whereNumber('tripId');
         
-        // Complaints
+        // Complaints ----
         Route::post('/complaints', [ComplaintController::class, 'store']);
         Route::get('/complaints', [PassengerComplaintController::class, 'index']);
         
@@ -190,7 +197,7 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/notifications', [PassengerNotificationController::class, 'index']);
         Route::patch('/notifications/read-all', [PassengerNotificationController::class, 'readAll']);
 
-        // profile
+        // profile APIS - ----
         Route::get('/me', [PassengerProfileController::class, 'show']);
         Route::patch('/me', [PassengerProfileController::class, 'update']);
         Route::get('/users/{id}', [PassengerProfileController::class, 'showOtherPassenger'])->whereNumber('id');
@@ -222,6 +229,7 @@ Route::prefix('v1/driver')->group(function () {
         
         //bookings
         Route::get('/bookings', [TripController::class, 'bookings']);
+        // ---- Bookings management apis for drivers ----
         Route::get('/bookings/{id}', [TripController::class, 'showBooking'])->whereNumber('id');
         Route::patch('/bookings/{id}/status', [TripController::class, 'updateBookingStatus'])->whereNumber('id');
         Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
@@ -231,7 +239,7 @@ Route::prefix('v1/driver')->group(function () {
         // Complaints
         Route::post('/complaints', [ComplaintController::class, 'store']);
         Route::get('/complaints', [DriverComplaintController::class, 'index']);
-        // ratings
+        // ratings ----
         Route::get('/rating', [DriverRatingController::class, 'show']);
         Route::get('/reports/financial', [DriverFinancialReportController::class, 'show']);
         
@@ -245,7 +253,7 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/notifications', [DriverNotificationController::class, 'index']);
         Route::patch('/notifications/read-all', [DriverNotificationController::class, 'readAll']);
 
-        // profile
+        // profile ----
         Route::get('/me', [DriverProfileController::class, 'show']);
         Route::get('/passengers/{id}', [DriverProfileController::class, 'showPassengerProfile'])->whereNumber('id');
         

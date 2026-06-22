@@ -22,7 +22,7 @@ class AdminBookingManagementService
         $filters = $this->normalizeFilters($filters);
 
         $query = Trip::query()
-            ->has('bookings')
+            ->has('bookings') // relation to ensure we only get trips with bookings
             ->with([
                 'driver.user',
                 'status',
@@ -66,10 +66,10 @@ class AdminBookingManagementService
             });
         }
 
-        $paginator = $query->orderBy('departure_time')->paginate($filters['per_page']);
+        $paginator = $query->orderBy('departure_time')->paginate($filters['per_page']); // trip pagination
 
         $items = collect();
-        foreach ($paginator->getCollection() as $trip) {
+        foreach ($paginator->getCollection() as $trip) { // loop through paginated trips
             $bookings = $trip->bookings;
             
             // Filter bookings for display
