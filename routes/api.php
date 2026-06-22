@@ -92,7 +92,7 @@ Route::prefix('v1/admin')->group(function () {
         // disable or enable driver account ----
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
 
-        // Passengers Apis  + reports ----
+        // Passengers management Apis  + reports ----
         Route::get('/passengers', [PassengerController::class, 'index']);
         Route::get('/passengers/{id}', [PassengerController::class, 'show']);
         Route::patch('/passengers/{id}/toggle-status', [PassengerController::class, 'toggleStatus']);
@@ -173,13 +173,18 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/trip-categories', [PassengerTripController::class, 'categories']);
         Route::get('/trip-categories/{governorateId}/trips', [PassengerTripController::class, 'categoryTrips'])->whereNumber('governorateId');
 
-        // ---- Bookings ----
+        
         Route::get('/bookings', [BookingController::class, 'index']);
         Route::get('/trips/{tripId}/bookings', [BookingController::class, 'byTrip'])->whereNumber('tripId');
+        
         Route::get('/bookings/{id}', [BookingController::class, 'show'])->whereNumber('id');
+        // -----
         Route::post('/bookings', [BookingController::class, 'store']);
+        //
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
+
+        // ---- Rating  ----
         Route::post('/rate-trip/{tripId}', [PassengerRatingController::class, 'store'])->whereNumber('tripId');
         
         // Complaints ----
@@ -229,18 +234,20 @@ Route::prefix('v1/driver')->group(function () {
         
         //bookings
         Route::get('/bookings', [TripController::class, 'bookings']);
-        // ---- Bookings management apis for drivers ----
+    
         Route::get('/bookings/{id}', [TripController::class, 'showBooking'])->whereNumber('id');
         Route::patch('/bookings/{id}/status', [TripController::class, 'updateBookingStatus'])->whereNumber('id');
         Route::patch('/bookings/{id}/attendance', [TripController::class, 'updateBookingAttendance'])->whereNumber('id');
         Route::get('/trips/{id}/bookings', [TripController::class, 'tripBookings'])->whereNumber('id');
         Route::get('/trips/{id}/attendance', [TripController::class, 'attendance'])->whereNumber('id');
         
-        // Complaints
+        // Complaints -----
         Route::post('/complaints', [ComplaintController::class, 'store']);
         Route::get('/complaints', [DriverComplaintController::class, 'index']);
         // ratings ----
         Route::get('/rating', [DriverRatingController::class, 'show']);
+
+        
         Route::get('/reports/financial', [DriverFinancialReportController::class, 'show']);
         
         //receipts
