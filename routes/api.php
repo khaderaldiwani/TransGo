@@ -168,6 +168,8 @@ Route::prefix('v1/passenger')->group(function () {
         Route::get('/trips/pending', [PassengerTripController::class, 'pending']);
         Route::get('/trips/completed', [PassengerTripController::class, 'completed']);
         Route::get('/trips/canceled', [PassengerTripController::class, 'canceled']);
+        //trips popular
+        Route::get('/trips/popular', [PassengerTripController::class, 'popular']);
         Route::get('/trips/search', [PassengerTripController::class, 'search']);
         Route::get('/trips/{id}', [PassengerTripController::class, 'show'])->whereNumber('id');
         Route::get('/trip-categories', [PassengerTripController::class, 'categories']);

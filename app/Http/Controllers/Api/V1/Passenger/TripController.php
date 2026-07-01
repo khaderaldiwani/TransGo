@@ -8,6 +8,7 @@ use App\Http\Resources\ApiResponse;
 use App\Services\PassengerTripCategoryService;
 use App\Services\PassengerTripHistoryService;
 use App\Services\PassengerTripDetailsService;
+use App\Services\PassengerPopularTripService;
 use App\Services\PassengerTripSearchService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -20,7 +21,8 @@ class TripController extends Controller
         private readonly PassengerTripHistoryService $passengerTripHistoryService,
         private readonly PassengerTripDetailsService $passengerTripDetailsService,
         private readonly PassengerTripSearchService $passengerTripSearchService,
-        private readonly PassengerTripCategoryService $passengerTripCategoryService
+        private readonly PassengerTripCategoryService $passengerTripCategoryService,
+        private readonly PassengerPopularTripService $passengerPopularTripService
     ) {
     }
 
@@ -113,6 +115,21 @@ class TripController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع أثناء البحث عن الرحلات.', 500);
+        }
+    }
+
+    public function popular()
+    {
+        try {
+            return ApiResponse::success(
+                'تم جلب الرحلات الأكثر شيوعًا بنجاح.',
+                200,
+                $this->passengerPopularTripService->list()
+            );
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء جلب الرحلات الأكثر شيوعًا.', 500);
         }
     }
 
