@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptC
 use App\Http\Controllers\Api\V1\Passenger\TripController as PassengerTripController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
 use App\Http\Controllers\Api\V1\GovernorateController;
+use App\Http\Controllers\Api\V1\SharedTrackingController;
 use App\Http\Controllers\Api\V1\TripStatusController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -55,6 +56,8 @@ Route::get('/v1/booking-statuses', [BookingStatusController::class, 'index']);
 //new
 //governorates public endpoint for web
 Route::get('/v1/governorates', [GovernorateController::class, 'index']);
+//show shared tracking for both passengers and drivers
+Route::get('/v1/public/tracking/{token}', [SharedTrackingController::class, 'show']);
 
 Route::prefix('v1/auth')->group(function () {
     Route::post('/send-otp', [OtpController::class, 'send']);
@@ -75,6 +78,7 @@ Route::prefix('v1/admin')->group(function () {
  
     Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function () {
         // Employees Apis
+
         Route::get('/employees', [EmployeeController::class, 'index']);
         Route::get('/employees/{id}', [EmployeeController::class, 'show']);
         Route::post('/employees', [EmployeeController::class, 'store']);
@@ -184,6 +188,9 @@ Route::prefix('v1/passenger')->group(function () {
         Route::post('/bookings', [BookingController::class, 'store']);
         //
         Route::post('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->whereNumber('id');
+       //tracking/share
+        Route::post('/trips/{id}/tracking/share', [BookingController::class, 'shareTracking'])->whereNumber('id');
+        
         Route::get('/trips/{id}/tracking', [BookingController::class, 'tracking'])->whereNumber('id');
 
         // ---- Rating  ----

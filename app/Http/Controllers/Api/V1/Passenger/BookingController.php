@@ -10,6 +10,9 @@ use App\Http\Resources\ApiResponse;
 use App\Services\BookingService;
 use App\Services\PassengerBookingOverviewService;
 use App\Services\PassengerTripTrackingService;
+use App\Services\TripTrackingShareService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Throwable;
@@ -19,7 +22,8 @@ class BookingController extends Controller
     public function __construct(
         protected BookingService $bookingService,
         protected PassengerTripTrackingService $passengerTripTrackingService,
-        protected PassengerBookingOverviewService $passengerBookingOverviewService
+        protected PassengerBookingOverviewService $passengerBookingOverviewService,
+        protected TripTrackingShareService $tripTrackingShareService
     ) {
     }
 
@@ -120,6 +124,31 @@ class BookingController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('حدث خطأ غير متوقع.', 500);
+        }
+    }
+
+    public function shareTracking(Request $request, int $id)
+    {
+        try {
+            $validated = Validator::make($request->all(), [
+                'expires_in_minutes' => ['nullable', 'integer', 'min:5', 'max:10080'],
+            ])->validate();
+
+            return ApiResponse::success(
+                'تم إنشاء رابط مشاركة تتبع الرحلة بنجاح.',
+                201,
+                $this->tripTrackingShareService->createShare(
+                    $id,
+                    $request->user(),
+                    isset($validated['expires_in_minutes']) ? (int) $validated['expires_in_minutes'] : null
+                )
+            );
+        } catch (ValidationException $e) {
+            return ApiResponse::validation('خطأ في صحة البيانات.', $e->errors(), 422);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('حدث خطأ غير متوقع أثناء إنشاء رابط مشاركة التتبع.', 500);
         }
     }
 }
