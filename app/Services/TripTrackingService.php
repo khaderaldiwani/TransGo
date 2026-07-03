@@ -22,8 +22,10 @@ class TripTrackingService
     private const APPROACH_DISTANCE_KM = 5.0;
     private const ARRIVAL_DISTANCE_KM = 0.15;
 
-    public function __construct(private readonly NotificationDispatchService $notifications)
-    {
+    public function __construct(
+        private readonly NotificationDispatchService $notifications,
+        private readonly TripTrackingPerformanceService $trackingPerformanceService
+    ) {
     }
 
     public function activateTracking(Trip $trip, ?Carbon $startedAt = null): void
@@ -111,11 +113,6 @@ class TripTrackingService
         $trip = $this->baseTrackingTripQuery()
             ->where('trip_id', $tripId)
             ->where('driver_id', $actor->user_id)
-            ->with([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ])
             ->first();
 
         if (! $trip) {
@@ -129,11 +126,6 @@ class TripTrackingService
     {
         $trip = $this->baseTrackingTripQuery()
             ->where('trip_id', $tripId)
-            ->with([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ])
             ->first();
 
         if (! $trip) {
@@ -166,15 +158,16 @@ class TripTrackingService
     public function buildTrackingHistory(Trip $trip, int $historyLimit = 100): array
     {
         if (! $trip->relationLoaded('liveLocations')) {
-            $trip->load([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ]);
+            $trip->setRelation(
+                'liveLocations',
+                $this->trackingPerformanceService->recentHistoryForTrip(
+                    (int) $trip->trip_id,
+                    $this->normalizeHistoryLimit($historyLimit)
+                )
+            );
         }
 
         $items = $trip->liveLocations
-            ->sortBy('recorded_at')
             ->values()
             ->map(function (TripLiveLocation $location) {
                 return [

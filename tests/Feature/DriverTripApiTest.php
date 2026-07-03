@@ -26,6 +26,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\GovernorateResolverService;
 use App\Services\RouteService;
+use App\Services\TripTrackingPerformanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -228,6 +229,40 @@ class DriverTripApiTest extends TestCase
             ->assertJsonPath('data.tracking.history.count', 2)
             ->assertJsonPath('data.tracking.last_position.longitude', 36.4002)
             ->assertJsonPath('data.tracking.details_endpoint', '/api/v1/driver/trips/'.$trip->trip_id.'/tracking');
+    }
+
+    public function test_tracking_performance_service_reads_latest_location_by_recorded_at(): void
+    {
+        $driver = $this->createDriverUser();
+        [$pending] = $this->seedTripStatuses();
+        [$damascus, $homs] = $this->createGovernorates();
+        $trip = $this->createTrip($driver, $pending->status_id, now()->addHour(), $damascus, $homs);
+
+        $newerRecordedAt = now();
+        $olderRecordedAt = now()->subMinutes(5);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $driver->user_id,
+            'latitude' => 33.7002,
+            'longitude' => 36.4002,
+            'recorded_at' => $newerRecordedAt,
+        ]);
+
+        TripLiveLocation::create([
+            'trip_id' => $trip->trip_id,
+            'driver_id' => $driver->user_id,
+            'latitude' => 33.6001,
+            'longitude' => 36.3001,
+            'recorded_at' => $olderRecordedAt,
+        ]);
+
+        $latest = app(TripTrackingPerformanceService::class)->latestLocationForTrip($trip->trip_id);
+        $history = app(TripTrackingPerformanceService::class)->recentHistoryForTrip($trip->trip_id, 10);
+
+        $this->assertEqualsWithDelta(33.7002, (float) $latest->latitude, 0.000001);
+        $this->assertEqualsWithDelta(33.6001, (float) $history->first()->latitude, 0.000001);
+        $this->assertEqualsWithDelta(33.7002, (float) $history->last()->latitude, 0.000001);
     }
 
     public function test_driver_can_list_grouped_bookings_and_view_booking_details(): void

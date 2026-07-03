@@ -19,7 +19,8 @@ class AdminTripManagementService
 {
     public function __construct(
         private readonly TripTrackingService $tripTrackingService,
-        private readonly TripClusterService $tripClusterService
+        private readonly TripClusterService $tripClusterService,
+        private readonly AuditLogService $auditLogService
     ) {
     }
 
@@ -151,6 +152,8 @@ class AdminTripManagementService
         }
 
         $statusKey = data_get($trip, 'status.status_key');
+        $oldStatusId = $trip->status_id;
+        $oldStatusKey = $statusKey;
         if (in_array($statusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
             throw new RuntimeException('لا يمكن إلغاء رحلة منتهية أو ملغاة مسبقاً.', 422);
         }
@@ -158,7 +161,7 @@ class AdminTripManagementService
         $canceledStatus = $this->resolveTripStatus(TripStatus::CANCELED);
         $reasonText = $reason ?: 'تم الإلغاء من قبل الإدارة.';
 
-        DB::transaction(function () use ($trip, $canceledStatus, $reasonText, $actor) {
+        DB::transaction(function () use ($trip, $canceledStatus, $reasonText, $actor, $oldStatusId, $oldStatusKey) {
             $trip->forceFill([
                 'status_id' => $canceledStatus->status_id,
             ])->save();
@@ -218,6 +221,23 @@ class AdminTripManagementService
                     );
                 }
             }
+
+            $this->auditLogService->log(
+                $actor,
+                'trip.admin_cancelled',
+                Trip::class,
+                $trip->trip_id,
+                [
+                    'status_id' => $oldStatusId,
+                    'status_key' => $oldStatusKey,
+                ],
+                [
+                    'status_id' => $canceledStatus->status_id,
+                    'status_key' => $canceledStatus->status_key,
+                    'reason' => $reasonText,
+                ],
+                "Trip {$trip->trip_id} cancelled administratively."
+            );
         });
 
         return $this->transformTripDetails(

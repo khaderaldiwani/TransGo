@@ -58,7 +58,7 @@ class AuthService
             $otp = $this->otpService->generate($user);
             return [
                 'user' => $user->fresh(['wallet', 'roles']),
-                'otp' => $otp,
+                'otp' => $otp->makeVisible('otp_code'),
             ];
         });
     }

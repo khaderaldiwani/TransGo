@@ -17,6 +17,10 @@ use RuntimeException;
 
 class AdminBookingManagementService
 {
+    public function __construct(private readonly AuditLogService $auditLogService)
+    {
+    }
+
     public function listBookings(array $filters): array
     {
         $filters = $this->normalizeFilters($filters);
@@ -320,6 +324,23 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
             ]);
 
             $this->sendBookingStatusNotification($booking, $currentStatusKey, $newStatus, $actor);
+
+            $this->auditLogService->log(
+                $actor,
+                'booking.admin_status_updated',
+                Booking::class,
+                $booking->booking_id,
+                [
+                    'status_id' => $oldStatusId,
+                    'status_key' => $currentStatusKey,
+                ],
+                [
+                    'status_id' => $newStatusModel->status_id,
+                    'status_key' => $newStatus,
+                    'reason' => $reason,
+                ],
+                "Booking {$booking->booking_id} status updated administratively."
+            );
         });
 
         return $this->getBookingDetails($bookingId);

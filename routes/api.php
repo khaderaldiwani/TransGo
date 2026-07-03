@@ -62,10 +62,10 @@ Route::get('/v1/governorates', [GovernorateController::class, 'index']);
 Route::get('/v1/public/tracking/{token}', [SharedTrackingController::class, 'show']);
 
 Route::prefix('v1/auth')->group(function () {
-    Route::post('/send-otp', [OtpController::class, 'send']);
-    Route::post('/verify-otp', [OtpController::class, 'verify']);
-    Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword']);
-    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword']);
+    Route::post('/send-otp', [OtpController::class, 'send'])->middleware('throttle:otp');
+    Route::post('/verify-otp', [OtpController::class, 'verify'])->middleware('throttle:otp');
+    Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword'])->middleware('throttle:login');
+    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword'])->middleware('throttle:otp');
     Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
 
     });
@@ -172,7 +172,7 @@ Route::prefix('v1/admin')->group(function () {
 
 Route::prefix('v1/passenger')->group(function () {
     Route::post('/login', [PassengerAuthController::class, 'login'])->middleware('throttle:login');
-    Route::post('/register', [PassengerAuthController::class, 'register']);
+    Route::post('/register', [PassengerAuthController::class, 'register'])->middleware('throttle:register');
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::get('/trips', [PassengerTripController::class, 'index']);

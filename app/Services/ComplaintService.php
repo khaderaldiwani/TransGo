@@ -16,6 +16,10 @@ use RuntimeException;
 
 class ComplaintService
 {
+    public function __construct(private readonly AuditLogService $auditLogService)
+    {
+    }
+
     /**
      * Submit a new complaint from passenger or driver
      */
@@ -172,6 +176,21 @@ class ComplaintService
 
             // Send notification to complainant
             $this->notifyComplainantOfStatusChange($complaint, $oldStatus, $newStatus, $actor);
+
+            $this->auditLogService->log(
+                $actor,
+                'complaint.admin_status_updated',
+                Complaint::class,
+                $complaint->complaint_id,
+                [
+                    'status' => $oldStatus,
+                ],
+                [
+                    'status' => $newStatus,
+                    'notes' => $notes,
+                ],
+                "Complaint {$complaint->complaint_id} status updated administratively."
+            );
         });
 
         return $this->getComplaintDetails($complaintId);
