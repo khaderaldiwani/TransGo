@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 use App\Http\Controllers\Api\V1\Passenger\RatingController as PassengerRatingController;
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
 use App\Http\Controllers\Api\V1\Passenger\TripController as PassengerTripController;
+use App\Http\Controllers\Api\V1\Passenger\VehicleCategoryController as PassengerVehicleCategoryController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
 use App\Http\Controllers\Api\V1\GovernorateController;
 use App\Http\Controllers\Api\V1\SharedTrackingController;
@@ -182,6 +183,7 @@ Route::prefix('v1/passenger')->group(function () {
         //trips popular
         Route::get('/trips/popular', [PassengerTripController::class, 'popular']);
         Route::get('/trips/search', [PassengerTripController::class, 'search']);
+        Route::get('/vehicle-categories', [PassengerVehicleCategoryController::class, 'index']);
         Route::get('/trips/{id}', [PassengerTripController::class, 'show'])->whereNumber('id');
         Route::get('/trip-categories', [PassengerTripController::class, 'categories']);
         Route::get('/trip-categories/{governorateId}/trips', [PassengerTripController::class, 'categoryTrips'])->whereNumber('governorateId');

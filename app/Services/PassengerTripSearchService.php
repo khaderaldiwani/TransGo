@@ -41,6 +41,12 @@ class PassengerTripSearchService
             $this->applyPointGovernorateFilters($query, $filters, $hasPickupPoint, $hasDropoffPoint);
         }
 
+        if (! empty($filters['vehicle_category_id'])) {
+            $query->whereHas('driver.vehicles', function ($vehicleQuery) use ($filters) {
+                $vehicleQuery->where('vehicle_category_id', (int) $filters['vehicle_category_id']);
+            });
+        }
+
         if ($tripType === 'shared') {
             $query->where('allow_shared', true)
                 ->where('is_private_booked', false)

@@ -18,6 +18,19 @@ class VehicleCategoryService
         return $query->get()->map(fn (VehicleCategory $category) => $this->transform($category))->values();
     }
 
+    public function activePassengerList()
+    {
+        return VehicleCategory::query()
+            ->where('is_active', true)
+            ->orderBy('category_id')
+            ->get()
+            ->map(fn (VehicleCategory $category) => [
+                'category_id' => $category->category_id,
+                'name' => $category->name,
+            ])
+            ->values();
+    }
+
     public function create(array $data): array
     {
         $category = VehicleCategory::query()->create([
