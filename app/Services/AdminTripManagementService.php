@@ -55,7 +55,7 @@ class AdminTripManagementService
         return [
             'filters' => $filters,
             'summary' => $this->summary(),
-            'items' => $paginator->getCollection()->map(
+            'items' => collect($paginator->items())->map(
                 fn (Trip $trip) => $this->transformTripSummary($trip)
             )->values(),
             'pagination' => [

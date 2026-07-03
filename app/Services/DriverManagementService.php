@@ -10,7 +10,6 @@ use App\Models\TripStatus;
 use App\Models\DriverProfile;
 use App\Models\User;
 use App\Models\Vehicle;
-use App\Models\VehicleCategory;
 use App\Models\Wallet;
 use Illuminate\Support\Collection;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -340,7 +339,7 @@ class DriverManagementService
 
             $vehicle = Vehicle::create([
                 'driver_id' => $driverProfile->user_id,
-                'vehicle_category_id' => $data['vehicle_category_id'] ?? $this->defaultVehicleCategoryId(),
+                'vehicle_category_id' => $data['vehicle_category_id'],
                 'car_type' => $data['car_type'],
                 'seat_capacity' => $data['seat_capacity'],
                 'mechanical_car' => $this->toPublicStoragePath($mechanicalCarImage),
@@ -606,13 +605,6 @@ class DriverManagementService
         }
 
         return 'suspended';
-    }
-
-    private function defaultVehicleCategoryId(): ?int
-    {
-        return VehicleCategory::query()
-            ->where('name', VehicleCategory::DEFAULT_NAME)
-            ->value('category_id');
     }
 
 }
