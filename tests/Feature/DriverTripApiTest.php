@@ -20,10 +20,12 @@ use App\Models\TripStatus;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Models\Vehicle;
+use App\Models\VehicleCategory;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\GovernorateResolverService;
+use App\Services\RouteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -715,6 +717,47 @@ class DriverTripApiTest extends TestCase
             ->assertJsonValidationErrors('wallet_balance');
     }
 
+    public function test_trip_preview_uses_vehicle_category_price_per_km(): void
+    {
+        $driver = $this->createDriverUser();
+        $driver->wallet()->update(['balance' => 5000]);
+
+        $category = VehicleCategory::where('name', 'تكسي صفراء')->firstOrFail();
+
+        Vehicle::where('driver_id', $driver->user_id)->update([
+            'vehicle_category_id' => $category->category_id,
+        ]);
+
+        [$damascus] = $this->createGovernorates();
+        $this->fakeGovernorateResolver($damascus);
+        $this->fakeRouteService(10);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/driver/trips/preview', [
+            'departure_time' => now()->addHours(2)->toIso8601String(),
+            'total_seats' => 4,
+            'allow_shared' => true,
+            'allow_private' => true,
+            'points' => [
+                [
+                    'point_type' => 'start',
+                    'latitude' => 33.5138,
+                    'longitude' => 36.2765,
+                ],
+                [
+                    'point_type' => 'end',
+                    'latitude' => 34.7308,
+                    'longitude' => 36.7090,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.estimated_distance_km', 10)
+            ->assertJsonPath('data.system_calculated_price', 945)
+            ->assertJsonMissingPath('data.vehicle_category');
+    }
+
     public function test_driver_can_complete_trip_and_commission_is_deducted_from_gross_revenue(): void
     {
         $driver = $this->createDriverUser();
@@ -1317,5 +1360,36 @@ class DriverTripApiTest extends TestCase
         };
 
         $this->app->instance(GovernorateResolverService::class, $resolver);
+    }
+
+    private function fakeRouteService(float $distanceKm): void
+    {
+        $routeService = new class($distanceKm) extends RouteService {
+            public function __construct(private float $distanceKm)
+            {
+            }
+
+            public function buildRoute(array $points): array
+            {
+                $orderedPoints = collect($points)
+                    ->values()
+                    ->map(function (array $point, int $index) {
+                        $point['sequence_order'] = $index + 1;
+                        $point['eta_offset_seconds'] = $index * 600;
+
+                        return $point;
+                    })
+                    ->all();
+
+                return [
+                    'ordered_points' => $orderedPoints,
+                    'estimated_distance_km' => $this->distanceKm,
+                    'estimated_duration_minutes' => 20,
+                    'polyline' => 'encoded-test-polyline',
+                ];
+            }
+        };
+
+        $this->app->instance(RouteService::class, $routeService);
     }
 }

@@ -73,6 +73,7 @@ class PassengerBookingOverviewService
             'trip.startGovernorate',
             'trip.endGovernorate',
             'trip.driver.user',
+            'trip.driver.vehicles.category',
             'trip.driver.vehicles.images',
             'payments',
             'cancellation.canceller',
@@ -108,6 +109,7 @@ class PassengerBookingOverviewService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'bookings_count' => $tripBookings->count(),

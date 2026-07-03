@@ -12,6 +12,7 @@ use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleCategory;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
 use App\Services\TripClusterService;
@@ -306,6 +307,8 @@ class TripClusterAvailabilityTest extends TestCase
             ->assertJsonPath('data.trip_id', $trip->trip_id)
             ->assertJsonPath('data.type.requested', 'shared')
             ->assertJsonPath('data.vehicle.type', 'Kia')
+            ->assertJsonPath('data.vehicle.vehicle_category.name', 'تكسي صفراء')
+            ->assertJsonPath('data.vehicle.vehicle_category.price_per_km', 84.5)
             ->assertJsonPath('data.vehicle.seat_capacity', 4)
             ->assertJsonPath('data.driver.image', 'driver-photo.jpg')
             ->assertJsonPath('data.route.from.display_address', 'Start note')
@@ -546,6 +549,7 @@ class TripClusterAvailabilityTest extends TestCase
 
         $vehicle = Vehicle::create([
             'driver_id' => $driver->user_id,
+            'vehicle_category_id' => VehicleCategory::where('name', 'تكسي صفراء')->value('category_id'),
             'car_type' => 'Kia',
             'seat_capacity' => 4,
             'mechanical_car' => 'mechanic.pdf',

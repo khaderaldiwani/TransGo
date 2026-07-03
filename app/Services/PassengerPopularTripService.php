@@ -48,6 +48,7 @@ class PassengerPopularTripService
                 'status',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',

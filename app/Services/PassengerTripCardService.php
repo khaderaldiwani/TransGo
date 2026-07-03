@@ -44,6 +44,7 @@ class PassengerTripCardService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'pricing' => [

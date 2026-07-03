@@ -241,6 +241,7 @@ class AdminTripManagementService
             ->with([
                 'status',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -328,6 +329,7 @@ class AdminTripManagementService
             'vehicle' => [
                 'image' => $vehicle?->images->first()?->image_url,
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'seat_capacity' => $vehicle?->seat_capacity,
             ],
             'driver' => [
@@ -372,6 +374,7 @@ class AdminTripManagementService
             'vehicle' => [
                 'type' => $vehicle?->car_type,
               //  'model' => $vehicle?->certified_agency,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'id_card' => $driver?->id_card,
                 'seats' => $vehicle?->seat_capacity,
                 'amenities' => array_values(array_filter([

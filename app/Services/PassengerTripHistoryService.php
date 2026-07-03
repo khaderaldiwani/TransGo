@@ -57,6 +57,7 @@ class PassengerTripHistoryService
                 'trip.startGovernorate',
                 'trip.endGovernorate',
                 'trip.driver.user',
+                'trip.driver.vehicles.category',
                 'trip.driver.vehicles.images',
                 'review',
             ])
@@ -141,6 +142,7 @@ class PassengerTripHistoryService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'pricing' => [

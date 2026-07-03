@@ -766,6 +766,7 @@ class DriverTripManagementService
                 'endGovernorate',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'bookings.status',
                 'bookings.attendanceStatus',
@@ -857,6 +858,7 @@ class DriverTripManagementService
                 'vehicle' => [
                     'type' => $vehicle?->car_type,
                     'model' => $vehicle?->certified_agency,
+                    'vehicle_category' => $vehicle?->categoryPayload(),
                     'image' => $vehicle?->images->first()?->image_url,
                 ],
                 'points' => $points->map(function ($point) {

@@ -22,6 +22,7 @@ class StoreDriverRequest extends FormRequest
             'license_image' => ['required', 'image', 'max:5120'],//رخصة القيادة
             'personal_photo' => ['required', 'image', 'max:5120'],//صورة شخصية
             'car_type' => ['required', 'string', 'max:255'],//نوع السيارة
+            'vehicle_category_id' => ['nullable', 'integer', 'exists:vehicle_categories,category_id'],
             'seat_capacity' => ['required', 'integer', 'min:1'],//عدد المقاعد
             'mechanical_car' => ['required', 'image', 'max:5120'],//صورة ميكانيك السيارة
             'vehicle_images' => ['required', 'array', 'size:4'],

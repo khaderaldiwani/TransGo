@@ -15,6 +15,7 @@ class DriverProfileResource extends JsonResource
             'email' => data_get($this->resource, 'email'),
             'car_plate_number' => data_get($this->resource, 'car_plate_number'),
             'car_type' => data_get($this->resource, 'car_type'),
+            'vehicle_category' => data_get($this->resource, 'vehicle_category'),
             'car_photos' => data_get($this->resource, 'car_photos', []),
             'overall_rating' => data_get($this->resource, 'overall_rating'),
         ];

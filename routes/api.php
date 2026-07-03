@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Admin\NotificationController as AdminNotificatio
 use App\Http\Controllers\Api\V1\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\V1\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
+use App\Http\Controllers\Api\V1\Admin\VehicleCategoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
@@ -95,6 +96,12 @@ Route::prefix('v1/admin')->group(function () {
         Route::post('/drivers', [DriverController::class, 'store']);
         // disable or enable driver account ----
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
+
+        // Vehicle categories pricing ----
+        Route::get('/vehicle-categories', [VehicleCategoryController::class, 'index']);
+        Route::post('/vehicle-categories', [VehicleCategoryController::class, 'store']);
+        Route::patch('/vehicle-categories/{categoryId}', [VehicleCategoryController::class, 'update'])->whereNumber('categoryId');
+        Route::patch('/vehicle-categories/{categoryId}/toggle-status', [VehicleCategoryController::class, 'toggleStatus'])->whereNumber('categoryId');
 
         // Passengers management Apis  + reports ----
         Route::get('/passengers', [PassengerController::class, 'index']);

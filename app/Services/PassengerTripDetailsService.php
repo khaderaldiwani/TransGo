@@ -21,6 +21,7 @@ class PassengerTripDetailsService
                 'status',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -78,6 +79,7 @@ class PassengerTripDetailsService
             'vehicle' => [
                 'type' => $vehicle?->car_type,
                 'model' => $vehicle?->certified_agency,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'seat_capacity' => $vehicle?->seat_capacity !== null ? (int) $vehicle->seat_capacity : null,
                 'plate_number' => $vehicle?->ownership_document,
                 'amenities' => [],

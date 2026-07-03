@@ -17,7 +17,7 @@ class TripPreviewService
 
     public function preview(array $data, User $actor): array
     {
-        $actor->loadMissing('driverProfile.vehicles');
+        $actor->loadMissing('driverProfile.vehicles.category');
 
         $vehicle = data_get($actor, 'driverProfile.vehicles.0');
 
@@ -32,6 +32,7 @@ class TripPreviewService
         $resolvedGovernorates = $this->governorateResolverService->resolveTripGovernorates($enrichedPoints);
         $systemCalculatedPrice = $this->priceCalculatorService->calculateSystemPrice(
             (float) $route['estimated_distance_km'],
+            $vehicle->category?->price_per_km !== null ? (float) $vehicle->category->price_per_km : null
         );
         $commissionSnapshot = $this->commissionRateService->previewCommissionSnapshot(
             $actor,
