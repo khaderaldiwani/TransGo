@@ -343,7 +343,11 @@ class DriverTripManagementService
         }
 
         $tripStatusKey = $trip->status?->status_key;
-        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
+        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
+            return $this->showTripDetails($tripId, $actor);
+        }
+
+        if ($tripStatusKey === TripStatus::CANCELED) {
             throw new RuntimeException('لا يمكن إنهاء رحلة مكتملة أو ملغاة مسبقاً.', 422);
         }
 
@@ -357,6 +361,28 @@ class DriverTripManagementService
         $completedBookingStatus = $this->resolveBookingStatus('completed');
 
         DB::transaction(function () use ($trip, $actor, $completedTripStatus, $completedBookingStatus, $notes, $completionContext) {
+            $trip = Trip::query()
+                ->with([
+                    'status',
+                    'bookings.status',
+                    'bookings.attendanceStatus',
+                    'bookings.passenger',
+                    'bookings.payments',
+                    'commissionRate',
+                ])
+                ->where('trip_id', $trip->trip_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $lockedTripStatusKey = $trip->status?->status_key;
+            if (in_array($lockedTripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
+                return;
+            }
+
+            if ($lockedTripStatusKey === TripStatus::CANCELED) {
+                throw new RuntimeException('Cannot complete a canceled trip.', 422);
+            }
+
             $oldTripState = [
                 'status_id' => $trip->status_id,
                 'gross_revenue_amount' => $trip->gross_revenue_amount,
@@ -1264,6 +1290,20 @@ class DriverTripManagementService
         float $commissionAmount,
         float $netRevenue
     ): void {
+        $existingSettlement = WalletTransaction::query()
+            ->where('wallet_id', $wallet->wallet_id)
+            ->where('transaction_type', 'commission')
+            ->whereHas('receipt', function (Builder $query) use ($trip) {
+                $query->where('related_trip_id', $trip->trip_id)
+                    ->where('receipt_type', 'driver_trip_settlement');
+            })
+            ->lockForUpdate()
+            ->exists();
+
+        if ($existingSettlement) {
+            return;
+        }
+
         $beforeBalance = (float) $wallet->balance;
         $afterBalance = round($beforeBalance - $commissionAmount, 2);
 
