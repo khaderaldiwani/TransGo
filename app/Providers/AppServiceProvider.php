@@ -54,6 +54,13 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute($maxAttempts)->by($identifier);
         });
 
+        RateLimiter::for('tracking-location', function (Request $request) {
+            $driverId = (string) ($request->user()?->user_id ?: $request->ip());
+            $tripId = (string) $request->route('id');
+
+            return Limit::perMinute(6)->by($driverId.'|'.$tripId);
+        });
+
         Event::listen(BookingCreated::class, function (BookingCreated $event) {
             $booking = $event->booking;
             $driverUser = $booking->trip?->driver?->user;

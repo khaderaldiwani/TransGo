@@ -12,7 +12,10 @@ use App\Http\Controllers\Api\V1\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
 use App\Http\Controllers\Api\V1\Admin\VehicleCategoryController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
 use App\Http\Controllers\Api\V1\Admin\DriverPerformanceController;
@@ -51,6 +54,45 @@ use App\Http\Controllers\Api\V1\TripStatusController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::get('/health', function () {
+    $checks = [
+        'app' => 'ok',
+        'database' => 'ok',
+        'cache' => 'ok',
+        'queue' => 'ok',
+    ];
+
+    try {
+        DB::select('select 1');
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['database'] = 'failed';
+    }
+
+    try {
+        Cache::put('health_check', 'ok', now()->addMinute());
+        $checks['cache'] = Cache::get('health_check') === 'ok' ? 'ok' : 'failed';
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['cache'] = 'failed';
+    }
+
+    try {
+        $checks['queue'] = Schema::hasTable('jobs') && Schema::hasTable('failed_jobs') ? 'ok' : 'failed';
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['queue'] = 'failed';
+    }
+
+    $healthy = ! in_array('failed', $checks, true);
+
+    return response()->json([
+        'success' => $healthy,
+        'message' => $healthy ? 'System is healthy' : 'System is degraded',
+        'data' => $checks,
+    ], $healthy ? 200 : 503);
 });
 
 Route::get('/v1/trip-statuses', [TripStatusController::class, 'index']);
@@ -243,7 +285,9 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/trips/completed', [TripController::class, 'completed']);
         Route::get('/trips/canceled', [TripController::class, 'canceled']);
         Route::get('/trips/{id}/tracking', [TripController::class, 'tracking'])->whereNumber('id');
-        Route::post('/trips/{id}/location', [TripController::class, 'storeLocation'])->whereNumber('id');
+        Route::post('/trips/{id}/location', [TripController::class, 'storeLocation'])
+            ->middleware('throttle:tracking-location')
+            ->whereNumber('id');
         Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
         Route::post('/trips/{id}/start', [TripController::class, 'start'])->whereNumber('id');
         Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');

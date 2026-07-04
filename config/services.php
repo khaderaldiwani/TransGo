@@ -49,6 +49,7 @@ return [
 
     'firebase' => [
         'enabled' => (bool) env('FIREBASE_ENABLED', false),
+        'queue' => (bool) env('FIREBASE_QUEUE', false),
         'project_id' => env('FIREBASE_PROJECT_ID'),
         'credentials' => env('FIREBASE_CREDENTIALS'),
         'credentials_json' => env('FIREBASE_CREDENTIALS_JSON'),
