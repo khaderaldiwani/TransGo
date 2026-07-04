@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\TripLocationUpdated;
 use App\Models\Booking;
 use App\Models\Notification;
 use App\Models\Role;
@@ -102,6 +103,8 @@ class TripTrackingService
 
         $data = $this->getDriverTripTracking($tripId, $actor, 100);
         $data['stored_location_id'] = $storedLocation->location_id;
+
+        event(new TripLocationUpdated($storedLocation));
 
         $this->notifyRoutePointProgress($tripId, $actor, $storedLocation);
 

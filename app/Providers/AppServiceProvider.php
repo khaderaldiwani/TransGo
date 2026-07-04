@@ -38,7 +38,25 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('register', function (Request $request) {
             $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
 
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('forgot-password', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('verify-otp', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
             return Limit::perMinute(5)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('resend-otp', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
         });
 
         RateLimiter::for('otp', function (Request $request) {

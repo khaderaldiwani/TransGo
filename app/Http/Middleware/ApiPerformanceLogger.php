@@ -21,15 +21,44 @@ class ApiPerformanceLogger
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
 
         if ($durationMs > self::SLOW_REQUEST_THRESHOLD_MS) {
-            Log::warning('Slow API request detected.', [
+            $context = [
                 'method' => $request->method(),
                 'path' => $request->path(),
                 'user_id' => $request->user()?->user_id,
+                'ip' => $request->ip(),
                 'duration_ms' => $durationMs,
+                'status_code' => $response->getStatusCode(),
                 'timestamp' => now()->toIso8601String(),
-            ]);
+            ];
+
+            if ($request->is('api/v1/auth/*') || $request->is('api/v1/*/login') || $request->is('api/v1/*/register')) {
+                $context['auth_identifier_masked'] = $this->maskedIdentifier(
+                    (string) ($request->input('phone') ?: $request->input('email') ?: '')
+                );
+            }
+
+            Log::warning('Slow API request detected.', $context);
         }
 
         return $response;
+    }
+
+    private function maskedIdentifier(string $identifier): ?string
+    {
+        if ($identifier === '') {
+            return null;
+        }
+
+        if (str_contains($identifier, '@')) {
+            [$name, $domain] = array_pad(explode('@', $identifier, 2), 2, '');
+
+            return substr($name, 0, 2).'****@'.$domain;
+        }
+
+        if (strlen($identifier) <= 6) {
+            return substr($identifier, 0, 1).'****';
+        }
+
+        return substr($identifier, 0, 3).'****'.substr($identifier, -3);
     }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Events\BookingStatusChanged;
+use App\Events\TripStatusChanged;
 use App\Models\Booking;
 use App\Models\BookingCancellation;
 use App\Models\BookingStatus;
@@ -177,9 +179,19 @@ class DriverTripManagementService
         $reasonText = $reason ?: 'تم إلغاء الرحلة من قبل السائق.';
 
         DB::transaction(function () use ($trip, $actor, $canceledTripStatus, $canceledBookingStatus, $reasonText) {
+            $oldStatusId = $trip->status_id;
+
             $trip->forceFill([
                 'status_id' => $canceledTripStatus->status_id,
             ])->save();
+
+            event(new TripStatusChanged(
+                $trip,
+                $oldStatusId,
+                $canceledTripStatus->status_id,
+                $actor->user_id,
+                $reasonText
+            ));
 
             $this->tripTrackingService->stopTracking($trip, now());
 
@@ -217,6 +229,14 @@ class DriverTripManagementService
                     'reason' => $reasonText,
                     'changed_at' => now(),
                 ]);
+
+                event(new BookingStatusChanged(
+                    $booking,
+                    $fromStatusId,
+                    $canceledBookingStatus->status_id,
+                    $actor->user_id,
+                    $reasonText
+                ));
 
                 BookingCancellation::updateOrCreate(
                     ['booking_id' => $booking->booking_id],
@@ -296,6 +316,14 @@ class DriverTripManagementService
                 'status_id' => $activeTripStatus->status_id,
                 'actual_start_time' => $startedAt,
             ])->save();
+
+            event(new TripStatusChanged(
+                $trip,
+                $oldStatusId,
+                $activeTripStatus->status_id,
+                $actor->user_id,
+                $notes
+            ));
 
             $this->tripTrackingService->activateTracking($trip, $startedAt);
 
@@ -438,6 +466,14 @@ class DriverTripManagementService
                 'completion_longitude' => $completionContext['longitude'],
             ])->save();
 
+            event(new TripStatusChanged(
+                $trip,
+                $oldTripState['status_id'],
+                $completedTripStatus->status_id,
+                $actor->user_id,
+                $completionContext['reason']
+            ));
+
             $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
             $this->auditLogService->log(
@@ -554,6 +590,14 @@ class DriverTripManagementService
                     'completion_latitude' => $completionContext['latitude'],
                     'completion_longitude' => $completionContext['longitude'],
                 ])->save();
+
+                event(new TripStatusChanged(
+                    $trip,
+                    $oldTripState['status_id'],
+                    $autoCompletedTripStatus->status_id,
+                    null,
+                    $completionContext['reason']
+                ));
 
                 $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
@@ -1270,6 +1314,14 @@ class DriverTripManagementService
                 'reason' => $notes ?: 'تم إنهاء الرحلة وتحديث الحجز إلى منتهي.',
                 'changed_at' => now(),
             ]);
+
+            event(new BookingStatusChanged(
+                $booking,
+                $fromStatusId,
+                $completedBookingStatus->status_id,
+                $actor?->user_id,
+                $notes
+            ));
 
             $payment = $booking->payments->sortByDesc('payment_id')->first();
             if ($payment && $payment->payment_method === 'cash') {

@@ -8,11 +8,16 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class BookingCreated implements ShouldDispatchAfterCommit
+class BookingStatusChanged implements ShouldDispatchAfterCommit
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Booking $booking)
-    {
+    public function __construct(
+        public Booking $booking,
+        public ?int $fromStatusId,
+        public int $toStatusId,
+        public ?int $changedBy = null,
+        public ?string $reason = null
+    ) {
     }
 }

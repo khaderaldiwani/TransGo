@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\BookingStatusChanged;
 use App\Models\AccountRestriction;
 use App\Models\Booking;
 use App\Models\BookingAttendance;
@@ -173,6 +174,14 @@ class DriverBookingManagementService
                 'reason' => $reason,
                 'changed_at' => now(),
             ]);
+
+            event(new BookingStatusChanged(
+                $booking,
+                $fromStatusId,
+                $targetStatus->status_id,
+                $actor->user_id,
+                $reason
+            ));
 
             $this->tripClusterService->refreshClusterAvailability($trip->fresh()->cluster_id);
 

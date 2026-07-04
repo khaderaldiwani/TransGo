@@ -104,10 +104,10 @@ Route::get('/v1/governorates', [GovernorateController::class, 'index']);
 Route::get('/v1/public/tracking/{token}', [SharedTrackingController::class, 'show']);
 
 Route::prefix('v1/auth')->group(function () {
-    Route::post('/send-otp', [OtpController::class, 'send'])->middleware('throttle:otp');
-    Route::post('/verify-otp', [OtpController::class, 'verify'])->middleware('throttle:otp');
+    Route::post('/send-otp', [OtpController::class, 'send'])->middleware('throttle:resend-otp');
+    Route::post('/verify-otp', [OtpController::class, 'verify'])->middleware('throttle:verify-otp');
     Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword'])->middleware('throttle:login');
-    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword'])->middleware('throttle:otp');
+    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword'])->middleware('throttle:forgot-password');
     Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
 
     });

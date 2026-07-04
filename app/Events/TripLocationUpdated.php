@@ -2,17 +2,17 @@
 
 namespace App\Events;
 
-use App\Models\Booking;
+use App\Models\TripLiveLocation;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class BookingCreated implements ShouldDispatchAfterCommit
+class TripLocationUpdated implements ShouldDispatchAfterCommit
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Booking $booking)
+    public function __construct(public TripLiveLocation $location)
     {
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\BookingCreated;
+use App\Events\BookingStatusChanged;
 use App\Models\AccountRestriction;
 use App\Models\Booking;
 use App\Models\BookingCancellation;
@@ -209,6 +210,14 @@ class BookingService
                 'status_id' => $canceledStatus->status_id,
                 'canceled_at' => now(),
             ]);
+
+            event(new BookingStatusChanged(
+                $booking,
+                $currentStatusId,
+                $canceledStatus->status_id,
+                $actor->user_id,
+                $reason
+            ));
 
             BookingStatusLog::create([
                 'booking_id' => $booking->booking_id,
