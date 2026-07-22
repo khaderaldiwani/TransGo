@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendFcmTopicNotification;
 use App\Models\Booking;
 use App\Models\Notification;
 use App\Models\Role;
@@ -63,11 +64,28 @@ class NotificationDispatchService
 
     public function sendToTopic(Notification $notification, string $topic, array $data = []): array
     {
+        $fcmData = $this->fcmData($notification, $data);
+
+        if (config('services.firebase.queue', false)) {
+            SendFcmTopicNotification::dispatch(
+                $topic,
+                $notification->title,
+                $notification->body,
+                $fcmData
+            );
+
+            return [
+                'sent' => false,
+                'queued' => true,
+                'topic' => $topic,
+            ];
+        }
+
         return $this->fcm->sendToTopic(
             $topic,
             $notification->title,
             $notification->body,
-            $this->fcmData($notification, $data)
+            $fcmData
         );
     }
 
@@ -198,7 +216,7 @@ class NotificationDispatchService
     {
         return [
             'trip_id' => $trip->trip_id,
-            'departure_time' => optional($trip->departure_time)->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
         ];
     }
 

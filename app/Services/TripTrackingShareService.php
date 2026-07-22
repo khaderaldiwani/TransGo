@@ -129,7 +129,7 @@ class TripTrackingShareService
                 'name' => $trip->status?->status_name,
             ],
             'trip' => [
-                'departure_at' => optional($trip->departure_time)->toIso8601String(),
+                'departure_at' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
                 'route_polyline' => $trip->route_polyline,

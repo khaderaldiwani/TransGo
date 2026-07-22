@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\ApiDateTime;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 
 class Trip extends Model
@@ -154,5 +156,10 @@ class Trip extends Model
     public function liveLocations()
     {
         return $this->hasMany(TripLiveLocation::class, 'trip_id', 'trip_id');
+    }
+
+    protected function serializeDate(DateTimeInterface $date): string
+    {
+        return ApiDateTime::toAppIso($date);
     }
 }

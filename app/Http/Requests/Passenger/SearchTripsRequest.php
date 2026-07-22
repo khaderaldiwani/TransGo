@@ -22,6 +22,7 @@ class SearchTripsRequest extends FormRequest
             'end_governorate_id' => ['nullable', 'integer', 'exists:governorates,governorate_id'],
             'departure_date' => ['required', 'date'],
             'trip_type' => ['required', 'string', Rule::in(['shared', 'private'])],
+            'vehicle_category_id' => ['nullable', 'integer', 'exists:vehicle_categories,category_id'],
             'pickup_latitude' => ['nullable', 'numeric', 'between:-90,90', 'required_with:pickup_longitude'],
             'pickup_longitude' => ['nullable', 'numeric', 'between:-180,180', 'required_with:pickup_latitude'],
             'dropoff_latitude' => ['nullable', 'numeric', 'between:-90,90', 'required_with:dropoff_longitude'],

@@ -21,6 +21,7 @@ class PassengerTripDetailsService
                 'status',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -78,6 +79,7 @@ class PassengerTripDetailsService
             'vehicle' => [
                 'type' => $vehicle?->car_type,
                 'model' => $vehicle?->certified_agency,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'seat_capacity' => $vehicle?->seat_capacity !== null ? (int) $vehicle->seat_capacity : null,
                 'plate_number' => $vehicle?->ownership_document,
                 'amenities' => [],
@@ -92,8 +94,8 @@ class PassengerTripDetailsService
                 'profile_endpoint' => "/api/v1/passenger/drivers/{$trip->driver_id}",
             ],
             'schedule' => [
-                'departure_time' => $trip->departure_time?->toIso8601String(),
-                'expected_arrival_time' => $this->expectedArrival($trip)?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($this->expectedArrival($trip)),
             ],
             'route' => [
                 'from' => [
@@ -124,7 +126,7 @@ class PassengerTripDetailsService
                     'latitude' => (float) $point->latitude,
                     'longitude' => (float) $point->longitude,
                     'sequence_order' => (int) $point->sequence_order,
-                    'expected_arrival_time' => $point->expected_arrival_time?->toIso8601String(),
+                    'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($point->expected_arrival_time),
                 ])->values(),
             ],
             'pricing' => [

@@ -9,7 +9,6 @@ use App\Models\TripStatus;
 use App\Models\User;
 use App\Models\UserNotification;
 use Carbon\Carbon;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +18,8 @@ class AdminTripManagementService
 {
     public function __construct(
         private readonly TripTrackingService $tripTrackingService,
-        private readonly TripClusterService $tripClusterService
+        private readonly TripClusterService $tripClusterService,
+        private readonly AuditLogService $auditLogService
     ) {
     }
 
@@ -49,20 +49,22 @@ class AdminTripManagementService
             ];
         }
 
-        /** @var LengthAwarePaginator $paginator */
-        $paginator = $query->orderByDesc('departure_time')->paginate($filters['per_page']);
+        $trips = $query->orderByDesc('departure_time')
+            ->get()
+            ->map(fn (Trip $trip) => $this->transformTripSummary($trip))
+            ->values();
+
+        $filters['per_page'] = $trips->count();
 
         return [
             'filters' => $filters,
             'summary' => $this->summary(),
-            'items' => $paginator->getCollection()->map(
-                fn (Trip $trip) => $this->transformTripSummary($trip)
-            )->values(),
+            'items' => $trips,
             'pagination' => [
-                'current_page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
+                'current_page' => 1,
+                'per_page' => $trips->count(),
+                'total' => $trips->count(),
+                'last_page' => 1,
             ],
         ];
     }
@@ -151,6 +153,8 @@ class AdminTripManagementService
         }
 
         $statusKey = data_get($trip, 'status.status_key');
+        $oldStatusId = $trip->status_id;
+        $oldStatusKey = $statusKey;
         if (in_array($statusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
             throw new RuntimeException('لا يمكن إلغاء رحلة منتهية أو ملغاة مسبقاً.', 422);
         }
@@ -158,7 +162,7 @@ class AdminTripManagementService
         $canceledStatus = $this->resolveTripStatus(TripStatus::CANCELED);
         $reasonText = $reason ?: 'تم الإلغاء من قبل الإدارة.';
 
-        DB::transaction(function () use ($trip, $canceledStatus, $reasonText, $actor) {
+        DB::transaction(function () use ($trip, $canceledStatus, $reasonText, $actor, $oldStatusId, $oldStatusKey) {
             $trip->forceFill([
                 'status_id' => $canceledStatus->status_id,
             ])->save();
@@ -218,6 +222,23 @@ class AdminTripManagementService
                     );
                 }
             }
+
+            $this->auditLogService->log(
+                $actor,
+                'trip.admin_cancelled',
+                Trip::class,
+                $trip->trip_id,
+                [
+                    'status_id' => $oldStatusId,
+                    'status_key' => $oldStatusKey,
+                ],
+                [
+                    'status_id' => $canceledStatus->status_id,
+                    'status_key' => $canceledStatus->status_key,
+                    'reason' => $reasonText,
+                ],
+                "Trip {$trip->trip_id} cancelled administratively."
+            );
         });
 
         return $this->transformTripDetails(
@@ -241,6 +262,7 @@ class AdminTripManagementService
             ->with([
                 'status',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -328,6 +350,7 @@ class AdminTripManagementService
             'vehicle' => [
                 'image' => $vehicle?->images->first()?->image_url,
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'seat_capacity' => $vehicle?->seat_capacity,
             ],
             'driver' => [
@@ -363,7 +386,7 @@ class AdminTripManagementService
             'trip_id' => $trip->trip_id,
             'status' => $this->statusPayload($trip),
             'general' => [
-                'departure_at' => optional($trip->departure_time)->toIso8601String(),
+                'departure_at' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
                 'expected_arrival_at' => $meta['expected_arrival_at'],
                 'estimated_duration_minutes' => (int) $trip->estimated_duration_minutes,
                 'estimated_distance_km' => $trip->estimated_distance_km !== null ? (float) $trip->estimated_distance_km : null,
@@ -372,6 +395,7 @@ class AdminTripManagementService
             'vehicle' => [
                 'type' => $vehicle?->car_type,
               //  'model' => $vehicle?->certified_agency,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'id_card' => $driver?->id_card,
                 'seats' => $vehicle?->seat_capacity,
                 'amenities' => array_values(array_filter([
@@ -436,7 +460,7 @@ class AdminTripManagementService
                         'pickup_point' => [
                             'point_name' => $booking->pickupPoint?->point_name,
                             'address' => $booking->pickupPoint?->address,
-                            'meeting_time' => optional($booking->pickupPoint?->meeting_time)->toIso8601String(),
+                            'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                             'latitude' => $booking->pickupPoint?->latitude !== null ? (float) $booking->pickupPoint?->latitude : null,
                             'longitude' => $booking->pickupPoint?->longitude !== null ? (float) $booking->pickupPoint?->longitude : null,
                             'governorate' => $booking->pickupPoint?->governorate?->name,
@@ -482,7 +506,7 @@ class AdminTripManagementService
             'trip_id' => $trip->trip_id,
             'driver_name' => $trip->driver?->user?->full_name,
             'status' => $this->statusPayload($trip),
-            'departure_at' => optional($trip->departure_time)->toIso8601String(),
+            'departure_at' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
             'expected_arrival_at' => $meta['expected_arrival_at'],
             'delay' => $meta['delay'],
             'progress_percent' => $meta['progress_percent'],
@@ -514,7 +538,7 @@ class AdminTripManagementService
         $progress = $this->resolveProgressPercent($trip, $departure, $expectedArrival);
 
         return [
-            'expected_arrival_at' => $expectedArrival?->toIso8601String(),
+            'expected_arrival_at' => \App\Support\ApiDateTime::toAppIso($expectedArrival),
             'delay' => [
                 'minutes' => $delayMinutes,
                 'is_delayed' => $delayMinutes >= 60,

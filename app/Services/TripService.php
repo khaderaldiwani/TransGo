@@ -25,7 +25,7 @@ class TripService
     public function createTrip(array $data, User $actor): Trip
     {
         $driverProfile = $this->resolveDriverProfile($actor);
-        $vehicle = $driverProfile->vehicles()->first();
+        $vehicle = $driverProfile->vehicles()->with('category')->first();
 
         if (! $vehicle) {
             throw ValidationException::withMessages([
@@ -47,6 +47,7 @@ class TripService
 
         $systemCalculatedPrice = $this->priceCalculatorService->calculateSystemPrice(
             (float) $route['estimated_distance_km'],
+            $vehicle->category?->price_per_km !== null ? (float) $vehicle->category->price_per_km : null
         );
 
         $this->validatePriceRange($data, $systemCalculatedPrice, (int) $vehicle->seat_capacity);
@@ -106,7 +107,7 @@ class TripService
 
     private function resolveDriverProfile(User $actor): DriverProfile
     {
-        $actor->loadMissing('driverProfile.vehicles');
+        $actor->loadMissing('driverProfile.vehicles.category');
 
         if (! $actor->driverProfile) {
             throw ValidationException::withMessages([

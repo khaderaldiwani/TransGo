@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\TripLocationUpdated;
 use App\Models\Booking;
 use App\Models\Notification;
 use App\Models\Role;
@@ -22,8 +23,10 @@ class TripTrackingService
     private const APPROACH_DISTANCE_KM = 5.0;
     private const ARRIVAL_DISTANCE_KM = 0.15;
 
-    public function __construct(private readonly NotificationDispatchService $notifications)
-    {
+    public function __construct(
+        private readonly NotificationDispatchService $notifications,
+        private readonly TripTrackingPerformanceService $trackingPerformanceService
+    ) {
     }
 
     public function activateTracking(Trip $trip, ?Carbon $startedAt = null): void
@@ -101,6 +104,8 @@ class TripTrackingService
         $data = $this->getDriverTripTracking($tripId, $actor, 100);
         $data['stored_location_id'] = $storedLocation->location_id;
 
+        event(new TripLocationUpdated($storedLocation));
+
         $this->notifyRoutePointProgress($tripId, $actor, $storedLocation);
 
         return $data;
@@ -111,11 +116,6 @@ class TripTrackingService
         $trip = $this->baseTrackingTripQuery()
             ->where('trip_id', $tripId)
             ->where('driver_id', $actor->user_id)
-            ->with([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ])
             ->first();
 
         if (! $trip) {
@@ -129,11 +129,6 @@ class TripTrackingService
     {
         $trip = $this->baseTrackingTripQuery()
             ->where('trip_id', $tripId)
-            ->with([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ])
             ->first();
 
         if (! $trip) {
@@ -166,15 +161,16 @@ class TripTrackingService
     public function buildTrackingHistory(Trip $trip, int $historyLimit = 100): array
     {
         if (! $trip->relationLoaded('liveLocations')) {
-            $trip->load([
-                'liveLocations' => fn ($query) => $query
-                    ->latest('recorded_at')
-                    ->limit($this->normalizeHistoryLimit($historyLimit)),
-            ]);
+            $trip->setRelation(
+                'liveLocations',
+                $this->trackingPerformanceService->recentHistoryForTrip(
+                    (int) $trip->trip_id,
+                    $this->normalizeHistoryLimit($historyLimit)
+                )
+            );
         }
 
         $items = $trip->liveLocations
-            ->sortBy('recorded_at')
             ->values()
             ->map(function (TripLiveLocation $location) {
                 return [
@@ -184,7 +180,7 @@ class TripTrackingService
                     'speed_kmh' => $location->speed_kmh !== null ? (float) $location->speed_kmh : null,
                     'heading' => $location->heading !== null ? (float) $location->heading : null,
                     'accuracy_meters' => $location->accuracy_meters !== null ? (float) $location->accuracy_meters : null,
-                    'recorded_at' => optional($location->recorded_at)->toIso8601String(),
+                    'recorded_at' => \App\Support\ApiDateTime::toAppIso($location->recorded_at),
                 ];
             });
 
@@ -223,9 +219,9 @@ class TripTrackingService
                 'phone' => $trip->driver?->user?->phone,
             ],
             'trip' => [
-                'departure_at' => optional($trip->departure_time)->toIso8601String(),
-                'actual_start_time' => optional($trip->actual_start_time)->toIso8601String(),
-                'completed_at' => optional($trip->completed_at)->toIso8601String(),
+                'departure_at' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'actual_start_time' => \App\Support\ApiDateTime::toAppIso($trip->actual_start_time),
+                'completed_at' => \App\Support\ApiDateTime::toAppIso($trip->completed_at),
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
                 'route_polyline' => $trip->route_polyline,

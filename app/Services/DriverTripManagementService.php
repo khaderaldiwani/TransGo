@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Events\BookingStatusChanged;
+use App\Events\TripStatusChanged;
 use App\Models\Booking;
 use App\Models\BookingCancellation;
 use App\Models\BookingStatus;
@@ -177,9 +179,19 @@ class DriverTripManagementService
         $reasonText = $reason ?: 'تم إلغاء الرحلة من قبل السائق.';
 
         DB::transaction(function () use ($trip, $actor, $canceledTripStatus, $canceledBookingStatus, $reasonText) {
+            $oldStatusId = $trip->status_id;
+
             $trip->forceFill([
                 'status_id' => $canceledTripStatus->status_id,
             ])->save();
+
+            event(new TripStatusChanged(
+                $trip,
+                $oldStatusId,
+                $canceledTripStatus->status_id,
+                $actor->user_id,
+                $reasonText
+            ));
 
             $this->tripTrackingService->stopTracking($trip, now());
 
@@ -217,6 +229,14 @@ class DriverTripManagementService
                     'reason' => $reasonText,
                     'changed_at' => now(),
                 ]);
+
+                event(new BookingStatusChanged(
+                    $booking,
+                    $fromStatusId,
+                    $canceledBookingStatus->status_id,
+                    $actor->user_id,
+                    $reasonText
+                ));
 
                 BookingCancellation::updateOrCreate(
                     ['booking_id' => $booking->booking_id],
@@ -297,6 +317,14 @@ class DriverTripManagementService
                 'actual_start_time' => $startedAt,
             ])->save();
 
+            event(new TripStatusChanged(
+                $trip,
+                $oldStatusId,
+                $activeTripStatus->status_id,
+                $actor->user_id,
+                $notes
+            ));
+
             $this->tripTrackingService->activateTracking($trip, $startedAt);
 
             $this->auditLogService->log(
@@ -343,7 +371,11 @@ class DriverTripManagementService
         }
 
         $tripStatusKey = $trip->status?->status_key;
-        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED, TripStatus::CANCELED], true)) {
+        if (in_array($tripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
+            return $this->showTripDetails($tripId, $actor);
+        }
+
+        if ($tripStatusKey === TripStatus::CANCELED) {
             throw new RuntimeException('لا يمكن إنهاء رحلة مكتملة أو ملغاة مسبقاً.', 422);
         }
 
@@ -357,6 +389,28 @@ class DriverTripManagementService
         $completedBookingStatus = $this->resolveBookingStatus('completed');
 
         DB::transaction(function () use ($trip, $actor, $completedTripStatus, $completedBookingStatus, $notes, $completionContext) {
+            $trip = Trip::query()
+                ->with([
+                    'status',
+                    'bookings.status',
+                    'bookings.attendanceStatus',
+                    'bookings.passenger',
+                    'bookings.payments',
+                    'commissionRate',
+                ])
+                ->where('trip_id', $trip->trip_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $lockedTripStatusKey = $trip->status?->status_key;
+            if (in_array($lockedTripStatusKey, [TripStatus::COMPLETED, TripStatus::AUTO_COMPLETED], true)) {
+                return;
+            }
+
+            if ($lockedTripStatusKey === TripStatus::CANCELED) {
+                throw new RuntimeException('Cannot complete a canceled trip.', 422);
+            }
+
             $oldTripState = [
                 'status_id' => $trip->status_id,
                 'gross_revenue_amount' => $trip->gross_revenue_amount,
@@ -411,6 +465,14 @@ class DriverTripManagementService
                 'completion_latitude' => $completionContext['latitude'],
                 'completion_longitude' => $completionContext['longitude'],
             ])->save();
+
+            event(new TripStatusChanged(
+                $trip,
+                $oldTripState['status_id'],
+                $completedTripStatus->status_id,
+                $actor->user_id,
+                $completionContext['reason']
+            ));
 
             $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
@@ -528,6 +590,14 @@ class DriverTripManagementService
                     'completion_latitude' => $completionContext['latitude'],
                     'completion_longitude' => $completionContext['longitude'],
                 ])->save();
+
+                event(new TripStatusChanged(
+                    $trip,
+                    $oldTripState['status_id'],
+                    $autoCompletedTripStatus->status_id,
+                    null,
+                    $completionContext['reason']
+                ));
 
                 $this->tripClusterService->refreshClusterAvailability($trip->cluster_id);
 
@@ -766,6 +836,7 @@ class DriverTripManagementService
                 'endGovernorate',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'bookings.status',
                 'bookings.attendanceStatus',
@@ -790,8 +861,8 @@ class DriverTripManagementService
                 'vehicle_image' => $vehicle?->images->first()?->image_url,
                 'departure_location' => $trip->startGovernorate?->name,
                 'arrival_location' => $trip->endGovernorate?->name,
-                'departure_time' => optional($trip->departure_time)->toIso8601String(),
-                'expected_arrival_time' => $expectedArrival?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($expectedArrival),
                 'shared_price' => $trip->shared_price !== null ? (float) $trip->shared_price : null,
                 'private_price' => $trip->private_price !== null ? (float) $trip->private_price : null,
                 'available_seats' => (int) $trip->available_seats,
@@ -811,8 +882,8 @@ class DriverTripManagementService
             'classification' => $this->classifyTrip($trip),
             
             'trip_details' => [
-                'departure_time' => optional($trip->departure_time)->toIso8601String(),
-                'expected_arrival_time' => $expectedArrival?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($expectedArrival),
                 'departure_location' => $trip->startGovernorate?->name,
                 'arrival_location' => $trip->endGovernorate?->name,
                 'route_polyline' => $trip->route_polyline,
@@ -828,12 +899,12 @@ class DriverTripManagementService
                     'commission_amount' => $trip->commission_amount !== null ? (float) $trip->commission_amount : null,
                     'net_revenue_amount' => $trip->net_revenue_amount !== null ? (float) $trip->net_revenue_amount : null,
                 ],
-                'actual_start_time' => optional($trip->actual_start_time)->toIso8601String(),
-                'completed_at' => optional($trip->completed_at)->toIso8601String(),
+                'actual_start_time' => \App\Support\ApiDateTime::toAppIso($trip->actual_start_time),
+                'completed_at' => \App\Support\ApiDateTime::toAppIso($trip->completed_at),
                 'completion' => [
                     'mode' => $trip->completion_mode,
                     'reason' => $trip->completion_reason,
-                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
+                    'tracking_stopped_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_stopped_at),
                     'location' => [
                         'latitude' => $trip->completion_latitude !== null ? (float) $trip->completion_latitude : null,
                         'longitude' => $trip->completion_longitude !== null ? (float) $trip->completion_longitude : null,
@@ -841,9 +912,9 @@ class DriverTripManagementService
                 ],
                 'tracking' => [
                     'is_tracking_active' => (bool) $trip->is_tracking_active,
-                    'tracking_started_at' => optional($trip->tracking_started_at)->toIso8601String(),
-                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
-                    'last_location_at' => optional($trip->last_location_at)->toIso8601String(),
+                    'tracking_started_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_started_at),
+                    'tracking_stopped_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_stopped_at),
+                    'last_location_at' => \App\Support\ApiDateTime::toAppIso($trip->last_location_at),
                     'last_position' => $trip->last_latitude !== null && $trip->last_longitude !== null
                         ? [
                             'latitude' => (float) $trip->last_latitude,
@@ -857,6 +928,7 @@ class DriverTripManagementService
                 'vehicle' => [
                     'type' => $vehicle?->car_type,
                     'model' => $vehicle?->certified_agency,
+                    'vehicle_category' => $vehicle?->categoryPayload(),
                     'image' => $vehicle?->images->first()?->image_url,
                 ],
                 'points' => $points->map(function ($point) {
@@ -868,7 +940,7 @@ class DriverTripManagementService
                         'latitude' => (float) $point->latitude,
                         'longitude' => (float) $point->longitude,
                         'sequence_order' => (int) $point->sequence_order,
-                        'expected_arrival_time' => optional($point->expected_arrival_time)->toIso8601String(),
+                        'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($point->expected_arrival_time),
                     ];
                 })->values(),
                 'bookings_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/bookings",
@@ -901,7 +973,7 @@ class DriverTripManagementService
             'pickup_point' => [
                 'point_name' => $booking->pickupPoint?->point_name,
                 'address' => $booking->pickupPoint?->address,
-                'meeting_time' => optional($booking->pickupPoint?->meeting_time)->toIso8601String(),
+                'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                 'latitude' => $booking->pickupPoint?->latitude !== null ? (float) $booking->pickupPoint->latitude : null,
                 'longitude' => $booking->pickupPoint?->longitude !== null ? (float) $booking->pickupPoint->longitude : null,
                 'governorate' => $booking->pickupPoint?->governorate?->name,
@@ -1243,6 +1315,14 @@ class DriverTripManagementService
                 'changed_at' => now(),
             ]);
 
+            event(new BookingStatusChanged(
+                $booking,
+                $fromStatusId,
+                $completedBookingStatus->status_id,
+                $actor?->user_id,
+                $notes
+            ));
+
             $payment = $booking->payments->sortByDesc('payment_id')->first();
             if ($payment && $payment->payment_method === 'cash') {
                 $payment->update([
@@ -1262,6 +1342,20 @@ class DriverTripManagementService
         float $commissionAmount,
         float $netRevenue
     ): void {
+        $existingSettlement = WalletTransaction::query()
+            ->where('wallet_id', $wallet->wallet_id)
+            ->where('transaction_type', 'commission')
+            ->whereHas('receipt', function (Builder $query) use ($trip) {
+                $query->where('related_trip_id', $trip->trip_id)
+                    ->where('receipt_type', 'driver_trip_settlement');
+            })
+            ->lockForUpdate()
+            ->exists();
+
+        if ($existingSettlement) {
+            return;
+        }
+
         $beforeBalance = (float) $wallet->balance;
         $afterBalance = round($beforeBalance - $commissionAmount, 2);
 

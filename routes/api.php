@@ -10,8 +10,12 @@ use App\Http\Controllers\Api\V1\Admin\NotificationController as AdminNotificatio
 use App\Http\Controllers\Api\V1\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\V1\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\V1\Admin\TripController as AdminTripController;
+use App\Http\Controllers\Api\V1\Admin\VehicleCategoryController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\Api\V1\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\V1\Admin\DriverController;
 use App\Http\Controllers\Api\V1\Admin\DriverPerformanceController;
@@ -42,6 +46,7 @@ use App\Http\Controllers\Api\V1\Passenger\PassengerAuthController;
 use App\Http\Controllers\Api\V1\Passenger\RatingController as PassengerRatingController;
 use App\Http\Controllers\Api\V1\Passenger\ReceiptController as PassengerReceiptController;
 use App\Http\Controllers\Api\V1\Passenger\TripController as PassengerTripController;
+use App\Http\Controllers\Api\V1\Passenger\VehicleCategoryController as PassengerVehicleCategoryController;
 use App\Http\Controllers\Api\V1\Passenger\WalletController as PassengerWalletController;
 use App\Http\Controllers\Api\V1\GovernorateController;
 use App\Http\Controllers\Api\V1\SharedTrackingController;
@@ -49,6 +54,45 @@ use App\Http\Controllers\Api\V1\TripStatusController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::get('/health', function () {
+    $checks = [
+        'app' => 'ok',
+        'database' => 'ok',
+        'cache' => 'ok',
+        'queue' => 'ok',
+    ];
+
+    try {
+        DB::select('select 1');
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['database'] = 'failed';
+    }
+
+    try {
+        Cache::put('health_check', 'ok', now()->addMinute());
+        $checks['cache'] = Cache::get('health_check') === 'ok' ? 'ok' : 'failed';
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['cache'] = 'failed';
+    }
+
+    try {
+        $checks['queue'] = Schema::hasTable('jobs') && Schema::hasTable('failed_jobs') ? 'ok' : 'failed';
+    } catch (Throwable $exception) {
+        report($exception);
+        $checks['queue'] = 'failed';
+    }
+
+    $healthy = ! in_array('failed', $checks, true);
+
+    return response()->json([
+        'success' => $healthy,
+        'message' => $healthy ? 'System is healthy' : 'System is degraded',
+        'data' => $checks,
+    ], $healthy ? 200 : 503);
 });
 
 Route::get('/v1/trip-statuses', [TripStatusController::class, 'index']);
@@ -60,10 +104,10 @@ Route::get('/v1/governorates', [GovernorateController::class, 'index']);
 Route::get('/v1/public/tracking/{token}', [SharedTrackingController::class, 'show']);
 
 Route::prefix('v1/auth')->group(function () {
-    Route::post('/send-otp', [OtpController::class, 'send']);
-    Route::post('/verify-otp', [OtpController::class, 'verify']);
-    Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword']);
-    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword']);
+    Route::post('/send-otp', [OtpController::class, 'send'])->middleware('throttle:resend-otp');
+    Route::post('/verify-otp', [OtpController::class, 'verify'])->middleware('throttle:verify-otp');
+    Route::post('/change-initial-password', [LoginController::class, 'changeInitialPassword'])->middleware('throttle:login');
+    Route::post('/reset-password', [ResetPasswordController::class, 'resetPassword'])->middleware('throttle:forgot-password');
     Route::post('/logout', [LogoutController::class, 'logout'])->middleware(['auth:sanctum']);
 
     });
@@ -95,6 +139,12 @@ Route::prefix('v1/admin')->group(function () {
         Route::post('/drivers', [DriverController::class, 'store']);
         // disable or enable driver account ----
         Route::patch('/drivers/{id}/toggle-status', [DriverController::class, 'toggleStatus']);
+
+        // Vehicle categories pricing ----
+        Route::get('/vehicle-categories', [VehicleCategoryController::class, 'index']);
+        Route::post('/vehicle-categories', [VehicleCategoryController::class, 'store']);
+        Route::patch('/vehicle-categories/{categoryId}', [VehicleCategoryController::class, 'update'])->whereNumber('categoryId');
+        Route::patch('/vehicle-categories/{categoryId}/toggle-status', [VehicleCategoryController::class, 'toggleStatus'])->whereNumber('categoryId');
 
         // Passengers management Apis  + reports ----
         Route::get('/passengers', [PassengerController::class, 'index']);
@@ -165,7 +215,7 @@ Route::prefix('v1/admin')->group(function () {
 
 Route::prefix('v1/passenger')->group(function () {
     Route::post('/login', [PassengerAuthController::class, 'login'])->middleware('throttle:login');
-    Route::post('/register', [PassengerAuthController::class, 'register']);
+    Route::post('/register', [PassengerAuthController::class, 'register'])->middleware('throttle:register');
    
     Route::middleware(['auth:sanctum', 'role:passenger'])->group(function(){
         Route::get('/trips', [PassengerTripController::class, 'index']);
@@ -176,6 +226,7 @@ Route::prefix('v1/passenger')->group(function () {
         //trips popular
         Route::get('/trips/popular', [PassengerTripController::class, 'popular']);
         Route::get('/trips/search', [PassengerTripController::class, 'search']);
+        Route::get('/vehicle-categories', [PassengerVehicleCategoryController::class, 'index']);
         Route::get('/trips/{id}', [PassengerTripController::class, 'show'])->whereNumber('id');
         Route::get('/trip-categories', [PassengerTripController::class, 'categories']);
         Route::get('/trip-categories/{governorateId}/trips', [PassengerTripController::class, 'categoryTrips'])->whereNumber('governorateId');
@@ -235,7 +286,9 @@ Route::prefix('v1/driver')->group(function () {
         Route::get('/trips/completed', [TripController::class, 'completed']);
         Route::get('/trips/canceled', [TripController::class, 'canceled']);
         Route::get('/trips/{id}/tracking', [TripController::class, 'tracking'])->whereNumber('id');
-        Route::post('/trips/{id}/location', [TripController::class, 'storeLocation'])->whereNumber('id');
+        Route::post('/trips/{id}/location', [TripController::class, 'storeLocation'])
+            ->middleware('throttle:tracking-location')
+            ->whereNumber('id');
         Route::get('/trips/{id}', [TripController::class, 'show'])->whereNumber('id');
         Route::post('/trips/{id}/start', [TripController::class, 'start'])->whereNumber('id');
         Route::post('/trips/{id}/cancel', [TripController::class, 'cancel'])->whereNumber('id');

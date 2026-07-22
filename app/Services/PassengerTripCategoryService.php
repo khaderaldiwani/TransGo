@@ -71,6 +71,7 @@ class PassengerTripCategoryService
                 'status',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -233,7 +234,7 @@ class PassengerTripCategoryService
                 'allow_shared' => (bool) $trip->allow_shared,
                 'allow_private' => (bool) $trip->allow_private,
             ],
-            'departure_time' => $trip->departure_time?->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
             'from' => [
                 'governorate_id' => $trip->start_governorate_id,
                 'name' => $trip->startGovernorate?->name,
@@ -254,6 +255,7 @@ class PassengerTripCategoryService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'pricing' => [

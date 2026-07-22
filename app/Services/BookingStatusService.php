@@ -4,11 +4,27 @@ namespace App\Services;
 
 use App\Models\BookingStatus;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class BookingStatusService
 {
+    private const CACHE_TTL_MINUTES = 30;
+
     public function list(): array
+    {
+        if (app()->runningUnitTests()) {
+            return $this->buildList();
+        }
+
+        return Cache::store('file')->remember(
+            $this->cacheKey(),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->buildList()
+        );
+    }
+
+    private function buildList(): array
     {
         $statuses = $this->resolveStatuses()
             ->prepend([
@@ -33,6 +49,21 @@ class BookingStatusService
                 ])
                 ->values(),
         ];
+    }
+
+    private function cacheKey(): string
+    {
+        $fingerprint = BookingStatus::query()
+            ->selectRaw('COUNT(*) as rows_count, MAX(status_id) as max_id, MAX(updated_at) as max_updated_at')
+            ->first();
+
+        return implode(':', [
+            'api',
+            'booking_statuses',
+            $fingerprint?->rows_count ?? 0,
+            $fingerprint?->max_id ?? 0,
+            $fingerprint?->max_updated_at ?? 'none',
+        ]);
     }
 
     private function resolveStatuses(): Collection

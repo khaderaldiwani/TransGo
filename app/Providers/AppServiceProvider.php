@@ -30,15 +30,53 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         RateLimiter::for('login', function (Request $request) {
-            $phone = (string) $request->input('phone');
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
 
-            return Limit::perMinute(5)->by($phone.'|'.$request->ip());
+            return Limit::perMinute(5)->by($identifier.'|'.$request->ip());
         });
 
         RateLimiter::for('register', function (Request $request) {
-            $phone = (string) $request->input('phone');
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
 
-            return Limit::perMinute(3)->by($phone.'|'.$request->ip());
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('forgot-password', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('verify-otp', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(5)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('resend-otp', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(3)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('otp', function (Request $request) {
+            $identifier = (string) ($request->input('phone') ?: $request->input('email') ?: 'guest');
+
+            return Limit::perMinute(5)->by($identifier.'|'.$request->ip());
+        });
+
+        RateLimiter::for('api', function (Request $request) {
+            $maxAttempts = app()->runningUnitTests() ? 1000 : 60;
+            $identifier = (string) ($request->user()?->user_id ?: $request->ip());
+
+            return Limit::perMinute($maxAttempts)->by($identifier);
+        });
+
+        RateLimiter::for('tracking-location', function (Request $request) {
+            $driverId = (string) ($request->user()?->user_id ?: $request->ip());
+            $tripId = (string) $request->route('id');
+
+            return Limit::perMinute(6)->by($driverId.'|'.$tripId);
         });
 
         Event::listen(BookingCreated::class, function (BookingCreated $event) {

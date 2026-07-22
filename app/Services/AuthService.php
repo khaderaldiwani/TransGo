@@ -4,6 +4,7 @@ namespace App\Services;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Wallet;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
@@ -30,7 +31,8 @@ class AuthService
         if ($email) {
             throw new \RuntimeException(" الايميل مستخدم بالفعل", 409);
         }
-        $user = User::create([
+        try {
+            $user = User::create([
                 'full_name' => $data['name'],
                 'phone' => $data['phone'],
                 'email' => $data['email'],
@@ -38,6 +40,16 @@ class AuthService
                 'password' => Hash::make($data['password']),
                 'account_status' => 0,
             ]);
+        } catch (QueryException $exception) {
+            $sqlState = (string) ($exception->errorInfo[0] ?? '');
+            $driverCode = (string) ($exception->errorInfo[1] ?? '');
+
+            if (in_array($sqlState, ['23000', '23505'], true) || $driverCode === '1062') {
+                throw new \RuntimeException("ط±ظ‚ظ… ط§ظ„ظ‡ط§طھظپ ط£ظˆ ط§ظ„ط§ظٹظ…ظٹظ„ ظ…ط³طھط®ط¯ظ… ط¨ط§ظ„ظپط¹ظ„", 409);
+            }
+
+            throw $exception;
+        }
 
             // attach role passenger
             $role = Role::where('name', $registerRole)->first();
@@ -58,7 +70,7 @@ class AuthService
             $otp = $this->otpService->generate($user);
             return [
                 'user' => $user->fresh(['wallet', 'roles']),
-                'otp' => $otp,
+                'otp' => $otp->makeVisible('otp_code'),
             ];
         });
     }
@@ -99,8 +111,6 @@ class AuthService
             ];
         }
 
-        $user->tokens()->delete();
-
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [
@@ -133,7 +143,6 @@ class AuthService
             'must_change_password' => false,
         ]);
 
-        $user->tokens()->delete();
     }
     function resetPassword(array $data)
     {

@@ -23,6 +23,7 @@ class PassengerTripSearchService
                 'status',
                 'points',
                 'driver.user',
+                'driver.vehicles.category',
                 'driver.vehicles.images',
                 'startGovernorate',
                 'endGovernorate',
@@ -38,6 +39,12 @@ class PassengerTripSearchService
                 ->where('end_governorate_id', (int) $filters['end_governorate_id']);
         } else {
             $this->applyPointGovernorateFilters($query, $filters, $hasPickupPoint, $hasDropoffPoint);
+        }
+
+        if (! empty($filters['vehicle_category_id'])) {
+            $query->whereHas('driver.vehicles', function ($vehicleQuery) use ($filters) {
+                $vehicleQuery->where('vehicle_category_id', (int) $filters['vehicle_category_id']);
+            });
         }
 
         if ($tripType === 'shared') {
@@ -168,7 +175,7 @@ class PassengerTripSearchService
                 'allow_shared' => (bool) $trip->allow_shared,
                 'allow_private' => (bool) $trip->allow_private,
             ],
-            'departure_time' => optional($trip->departure_time)->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
             'from' => [
                 'governorate_id' => $trip->start_governorate_id,
                 'name' => $trip->startGovernorate?->name,
@@ -189,6 +196,7 @@ class PassengerTripSearchService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'pricing' => [

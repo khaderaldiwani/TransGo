@@ -12,6 +12,7 @@ use App\Models\TripPoint;
 use App\Models\TripStatus;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleCategory;
 use App\Models\VehicleImage;
 use App\Models\Wallet;
 use App\Services\TripClusterService;
@@ -254,6 +255,70 @@ class TripClusterAvailabilityTest extends TestCase
         );
     }
 
+    public function test_passenger_can_filter_trip_search_by_vehicle_category(): void
+    {
+        [$pending] = $this->seedTripStatuses();
+        [$start, $end] = $this->createGovernorates();
+        $taxiDriver = $this->createDriver('taxi-category-driver@example.com', '0971111121', 'تكسي صفراء');
+        $vipDriver = $this->createDriver('vip-category-driver@example.com', '0971111122', 'قمة الرفاهية VIP');
+        $passenger = $this->createPassenger('category-filter-passenger@example.com', '0981111121');
+
+        $taxiTrip = $this->createTrip(
+            $taxiDriver,
+            $pending->status_id,
+            $start,
+            $end,
+            now()->addHours(3),
+            false,
+            true,
+            33.5138,
+            36.2765,
+            34.7308,
+            36.7090
+        );
+
+        $vipTrip = $this->createTrip(
+            $vipDriver,
+            $pending->status_id,
+            $start,
+            $end,
+            now()->addHours(2),
+            false,
+            true,
+            33.5139,
+            36.2766,
+            34.7309,
+            36.7091
+        );
+
+        $taxiCategoryId = VehicleCategory::where('name', 'تكسي صفراء')->value('category_id');
+
+        Sanctum::actingAs($passenger);
+
+        $response = $this->getJson('/api/v1/passenger/trips/search?'.http_build_query([
+            'departure_date' => now()->toDateString(),
+            'trip_type' => 'private',
+            'start_governorate_id' => $start->governorate_id,
+            'end_governorate_id' => $end->governorate_id,
+            'pickup_latitude' => 33.5140,
+            'pickup_longitude' => 36.2766,
+            'dropoff_latitude' => 34.7309,
+            'dropoff_longitude' => 36.7091,
+            'vehicle_category_id' => $taxiCategoryId,
+        ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.trip_id', $taxiTrip->trip_id)
+            ->assertJsonPath('data.items.0.vehicle.vehicle_category.category_id', $taxiCategoryId);
+
+        $this->assertNotContains(
+            $vipTrip->trip_id,
+            collect($response->json('data.items'))->pluck('trip_id')->all()
+        );
+    }
+
     public function test_passenger_can_view_trip_details(): void
     {
         [$pending] = $this->seedTripStatuses();
@@ -306,6 +371,8 @@ class TripClusterAvailabilityTest extends TestCase
             ->assertJsonPath('data.trip_id', $trip->trip_id)
             ->assertJsonPath('data.type.requested', 'shared')
             ->assertJsonPath('data.vehicle.type', 'Kia')
+            ->assertJsonPath('data.vehicle.vehicle_category.name', 'تكسي صفراء')
+            ->assertJsonPath('data.vehicle.vehicle_category.price_per_km', 84.5)
             ->assertJsonPath('data.vehicle.seat_capacity', 4)
             ->assertJsonPath('data.driver.image', 'driver-photo.jpg')
             ->assertJsonPath('data.route.from.display_address', 'Start note')
@@ -521,7 +588,7 @@ class TripClusterAvailabilityTest extends TestCase
         ];
     }
 
-    private function createDriver(string $email, string $phone): User
+    private function createDriver(string $email, string $phone, string $vehicleCategoryName = 'تكسي صفراء'): User
     {
         $role = Role::firstOrCreate(['name' => Role::ROLE_DRIVER]);
 
@@ -546,6 +613,7 @@ class TripClusterAvailabilityTest extends TestCase
 
         $vehicle = Vehicle::create([
             'driver_id' => $driver->user_id,
+            'vehicle_category_id' => VehicleCategory::where('name', $vehicleCategoryName)->value('category_id'),
             'car_type' => 'Kia',
             'seat_capacity' => 4,
             'mechanical_car' => 'mechanic.pdf',

@@ -76,7 +76,7 @@ class DriverManagementService
     public function getDriver(int $id): array
     {
         $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
-            ->with(['roles', 'driverProfile.vehicles.images', 'wallet'])
+            ->with(['roles', 'driverProfile.vehicles.category', 'driverProfile.vehicles.images', 'wallet'])
             ->find($id);
 
         if (! $user) {
@@ -135,6 +135,7 @@ class DriverManagementService
             ],
             'vehicle_information' => [
                 'car_type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'plate_number' => $user->driverProfile?->id_card,
                 'car_photos' => $carPhotoUrls,
                 'driving_license_image' => $this->absoluteFileUrl($user->driverProfile?->license_image),
@@ -193,6 +194,7 @@ class DriverManagementService
                 'email' => $driver->email,
                 'car_plate_number' => $driver->driverProfile?->id_card,
                 'car_type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'car_photos' => $carPhotoUrls,
                 'overall_rating' => $this->calculateDriverRating($driver->user_id),
             ],
@@ -224,6 +226,7 @@ class DriverManagementService
                 'phone_number' => $driver->phone,
                 'car_plate_number' => $driver->driverProfile?->id_card,
                 'car_type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'car_photos' => $carPhotoUrls,
                 'overall_rating' => $this->calculateDriverRating($driver->user_id),
             ],
@@ -336,6 +339,7 @@ class DriverManagementService
 
             $vehicle = Vehicle::create([
                 'driver_id' => $driverProfile->user_id,
+                'vehicle_category_id' => $data['vehicle_category_id'],
                 'car_type' => $data['car_type'],
                 'seat_capacity' => $data['seat_capacity'],
                 'mechanical_car' => $this->toPublicStoragePath($mechanicalCarImage),
@@ -369,10 +373,13 @@ class DriverManagementService
                 "Driver {$driver->full_name} (ID: {$driver->user_id}) created by {$actor->full_name} (ID: {$actor->user_id})."
             );
 
+            $vehicleData = $vehicle->load('images')->toArray();
+            $vehicleData['vehicle_category'] = $vehicle->loadMissing('category')->categoryPayload();
+
             return [
                 'driver' => $driver->load(['roles', 'wallet']),
                 'driver_profile' => $driverProfile,
-                'vehicle' => $vehicle->load('images'),
+                'vehicle' => $vehicleData,
                 'temporary_password' => $temporaryPassword,
             ];
         });
@@ -420,14 +427,14 @@ class DriverManagementService
             "Driver {$user->full_name} (ID: {$user->user_id}) status changed from {$oldStatus} to {$newStatus} by {$actor->full_name} (ID: {$actor->user_id})."
         );
 
-        return $user->fresh(['roles', 'driverProfile.vehicles.images', 'wallet']);
+        return $user->fresh(['roles', 'driverProfile.vehicles.category', 'driverProfile.vehicles.images', 'wallet']);
     }
 
 
     private function resolveDriver(int $id): User
     {
         $user = User::whereHas('roles', fn ($q) => $q->where('name', Role::ROLE_DRIVER))
-            ->with(['roles', 'driverProfile.vehicles.images', 'wallet'])
+            ->with(['roles', 'driverProfile.vehicles.category', 'driverProfile.vehicles.images', 'wallet'])
             ->find($id);
 
         if (! $user) {
@@ -599,7 +606,5 @@ class DriverManagementService
 
         return 'suspended';
     }
+
 }
-
-
-

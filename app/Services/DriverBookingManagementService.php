@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\BookingStatusChanged;
 use App\Models\AccountRestriction;
 use App\Models\Booking;
 use App\Models\BookingAttendance;
@@ -173,6 +174,14 @@ class DriverBookingManagementService
                 'reason' => $reason,
                 'changed_at' => now(),
             ]);
+
+            event(new BookingStatusChanged(
+                $booking,
+                $fromStatusId,
+                $targetStatus->status_id,
+                $actor->user_id,
+                $reason
+            ));
 
             $this->tripClusterService->refreshClusterAvailability($trip->fresh()->cluster_id);
 
@@ -644,7 +653,7 @@ class DriverBookingManagementService
 
                 return [
                     'trip_id' => $trip?->trip_id,
-                    'departure_time' => optional($trip?->departure_time)->toIso8601String(),
+                    'departure_time' => \App\Support\ApiDateTime::toAppIso($trip?->departure_time),
                     'departure_location' => $trip?->startGovernorate?->name,
                     'arrival_location' => $trip?->endGovernorate?->name,
                     'trip_status' => $trip?->status?->status_key,
@@ -729,12 +738,12 @@ class DriverBookingManagementService
                 'address' => $booking->pickupPoint?->address,
                 'latitude' => $booking->pickupPoint?->latitude !== null ? (float) $booking->pickupPoint->latitude : null,
                 'longitude' => $booking->pickupPoint?->longitude !== null ? (float) $booking->pickupPoint->longitude : null,
-                'meeting_time' => optional($booking->pickupPoint?->meeting_time)->toIso8601String(),
+                'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                 'is_new' => (bool) $booking->pickupPoint?->is_new,
             ],
             'trip' => [
                 'trip_id' => $booking->trip?->trip_id,
-                'departure_time' => optional($booking->trip?->departure_time)->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($booking->trip?->departure_time),
                 'departure_location' => $booking->trip?->startGovernorate?->name,
                 'arrival_location' => $booking->trip?->endGovernorate?->name,
             ],

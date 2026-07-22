@@ -26,7 +26,7 @@ class OtpService
             'expires_at' => now()->addMinutes(OtpVerification::OTP_EXPIRY_MINUTES),
             'verified' => false
         ]);
-        Mail::to($user->email)->send(new OtpCodeMail($otp, $user->full_name));
+        Mail::to($user->email)->queue(new OtpCodeMail($otp, $user->full_name));
         return $otpRespone;
     }
 

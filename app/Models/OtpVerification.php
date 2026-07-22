@@ -21,6 +21,10 @@ class OtpVerification extends Model
         'verified',
     ];
 
+    protected $hidden = [
+        'otp_code',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

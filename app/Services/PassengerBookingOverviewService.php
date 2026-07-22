@@ -73,6 +73,7 @@ class PassengerBookingOverviewService
             'trip.startGovernorate',
             'trip.endGovernorate',
             'trip.driver.user',
+            'trip.driver.vehicles.category',
             'trip.driver.vehicles.images',
             'payments',
             'cancellation.canceller',
@@ -95,7 +96,7 @@ class PassengerBookingOverviewService
                 'key' => $trip?->status?->status_key,
                 'name' => $trip?->status?->status_name,
             ],
-            'departure_time' => $trip?->departure_time?->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip?->departure_time),
             'route' => [
                 'from' => $trip?->startGovernorate?->name,
                 'to' => $trip?->endGovernorate?->name,
@@ -108,6 +109,7 @@ class PassengerBookingOverviewService
             ],
             'vehicle' => [
                 'type' => $vehicle?->car_type,
+                'vehicle_category' => $vehicle?->categoryPayload(),
                 'image' => $vehicle?->images?->first()?->image_url,
             ],
             'bookings_count' => $tripBookings->count(),
@@ -213,7 +215,7 @@ class PassengerBookingOverviewService
                 'key' => $trip?->status?->status_key,
                 'name' => $trip?->status?->status_name,
             ],
-            'departure_time' => $trip?->departure_time?->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip?->departure_time),
             'from' => [
                 'governorate_id' => $trip?->start_governorate_id,
                 'name' => $trip?->startGovernorate?->name,
@@ -250,7 +252,7 @@ class PassengerBookingOverviewService
             'display_address' => $this->displayPickupAddress($booking),
             'latitude' => $pickupPoint->latitude !== null ? (float) $pickupPoint->latitude : null,
             'longitude' => $pickupPoint->longitude !== null ? (float) $pickupPoint->longitude : null,
-            'meeting_time' => $pickupPoint->meeting_time?->toIso8601String(),
+            'meeting_time' => \App\Support\ApiDateTime::toAppIso($pickupPoint->meeting_time),
             'is_new' => (bool) $pickupPoint->is_new,
         ];
     }

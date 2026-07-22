@@ -110,7 +110,7 @@ class DriverWalletOverviewService
                     'trip_id' => $trip->trip_id,
                     'start_point' => $trip->startGovernorate?->name,
                     'end_point' => $trip->endGovernorate?->name,
-                    'departure_time' => optional($trip->departure_time)->toIso8601String(),
+                    'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
                 ] : null,
                 'booking' => $transaction->booking ? [
                     'booking_id' => $transaction->booking->booking_id,
