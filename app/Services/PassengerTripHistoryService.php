@@ -108,7 +108,7 @@ class PassengerTripHistoryService
                 'allow_shared' => (bool) ($trip?->allow_shared ?? false),
                 'allow_private' => (bool) ($trip?->allow_private ?? false),
             ],
-            'departure_time' => $trip?->departure_time?->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip?->departure_time),
             'from' => [
                 'governorate_id' => $trip?->start_governorate_id,
                 'name' => $trip?->startGovernorate?->name,
@@ -131,7 +131,7 @@ class PassengerTripHistoryService
                 'display_address' => $this->displayPickupAddress($booking),
                 'latitude' => $booking->pickupPoint?->latitude !== null ? (float) $booking->pickupPoint->latitude : null,
                 'longitude' => $booking->pickupPoint?->longitude !== null ? (float) $booking->pickupPoint->longitude : null,
-                'meeting_time' => $booking->pickupPoint?->meeting_time?->toIso8601String(),
+                'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                 'is_new' => (bool) ($booking->pickupPoint?->is_new ?? false),
             ],
             'driver' => [

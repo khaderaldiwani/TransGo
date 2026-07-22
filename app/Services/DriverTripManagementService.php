@@ -861,8 +861,8 @@ class DriverTripManagementService
                 'vehicle_image' => $vehicle?->images->first()?->image_url,
                 'departure_location' => $trip->startGovernorate?->name,
                 'arrival_location' => $trip->endGovernorate?->name,
-                'departure_time' => optional($trip->departure_time)->toIso8601String(),
-                'expected_arrival_time' => $expectedArrival?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($expectedArrival),
                 'shared_price' => $trip->shared_price !== null ? (float) $trip->shared_price : null,
                 'private_price' => $trip->private_price !== null ? (float) $trip->private_price : null,
                 'available_seats' => (int) $trip->available_seats,
@@ -882,8 +882,8 @@ class DriverTripManagementService
             'classification' => $this->classifyTrip($trip),
             
             'trip_details' => [
-                'departure_time' => optional($trip->departure_time)->toIso8601String(),
-                'expected_arrival_time' => $expectedArrival?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($expectedArrival),
                 'departure_location' => $trip->startGovernorate?->name,
                 'arrival_location' => $trip->endGovernorate?->name,
                 'route_polyline' => $trip->route_polyline,
@@ -899,12 +899,12 @@ class DriverTripManagementService
                     'commission_amount' => $trip->commission_amount !== null ? (float) $trip->commission_amount : null,
                     'net_revenue_amount' => $trip->net_revenue_amount !== null ? (float) $trip->net_revenue_amount : null,
                 ],
-                'actual_start_time' => optional($trip->actual_start_time)->toIso8601String(),
-                'completed_at' => optional($trip->completed_at)->toIso8601String(),
+                'actual_start_time' => \App\Support\ApiDateTime::toAppIso($trip->actual_start_time),
+                'completed_at' => \App\Support\ApiDateTime::toAppIso($trip->completed_at),
                 'completion' => [
                     'mode' => $trip->completion_mode,
                     'reason' => $trip->completion_reason,
-                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
+                    'tracking_stopped_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_stopped_at),
                     'location' => [
                         'latitude' => $trip->completion_latitude !== null ? (float) $trip->completion_latitude : null,
                         'longitude' => $trip->completion_longitude !== null ? (float) $trip->completion_longitude : null,
@@ -912,9 +912,9 @@ class DriverTripManagementService
                 ],
                 'tracking' => [
                     'is_tracking_active' => (bool) $trip->is_tracking_active,
-                    'tracking_started_at' => optional($trip->tracking_started_at)->toIso8601String(),
-                    'tracking_stopped_at' => optional($trip->tracking_stopped_at)->toIso8601String(),
-                    'last_location_at' => optional($trip->last_location_at)->toIso8601String(),
+                    'tracking_started_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_started_at),
+                    'tracking_stopped_at' => \App\Support\ApiDateTime::toAppIso($trip->tracking_stopped_at),
+                    'last_location_at' => \App\Support\ApiDateTime::toAppIso($trip->last_location_at),
                     'last_position' => $trip->last_latitude !== null && $trip->last_longitude !== null
                         ? [
                             'latitude' => (float) $trip->last_latitude,
@@ -940,7 +940,7 @@ class DriverTripManagementService
                         'latitude' => (float) $point->latitude,
                         'longitude' => (float) $point->longitude,
                         'sequence_order' => (int) $point->sequence_order,
-                        'expected_arrival_time' => optional($point->expected_arrival_time)->toIso8601String(),
+                        'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($point->expected_arrival_time),
                     ];
                 })->values(),
                 'bookings_endpoint' => "/api/v1/driver/trips/{$trip->trip_id}/bookings",
@@ -973,7 +973,7 @@ class DriverTripManagementService
             'pickup_point' => [
                 'point_name' => $booking->pickupPoint?->point_name,
                 'address' => $booking->pickupPoint?->address,
-                'meeting_time' => optional($booking->pickupPoint?->meeting_time)->toIso8601String(),
+                'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                 'latitude' => $booking->pickupPoint?->latitude !== null ? (float) $booking->pickupPoint->latitude : null,
                 'longitude' => $booking->pickupPoint?->longitude !== null ? (float) $booking->pickupPoint->longitude : null,
                 'governorate' => $booking->pickupPoint?->governorate?->name,

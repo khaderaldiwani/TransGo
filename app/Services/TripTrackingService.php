@@ -180,7 +180,7 @@ class TripTrackingService
                     'speed_kmh' => $location->speed_kmh !== null ? (float) $location->speed_kmh : null,
                     'heading' => $location->heading !== null ? (float) $location->heading : null,
                     'accuracy_meters' => $location->accuracy_meters !== null ? (float) $location->accuracy_meters : null,
-                    'recorded_at' => optional($location->recorded_at)->toIso8601String(),
+                    'recorded_at' => \App\Support\ApiDateTime::toAppIso($location->recorded_at),
                 ];
             });
 
@@ -219,9 +219,9 @@ class TripTrackingService
                 'phone' => $trip->driver?->user?->phone,
             ],
             'trip' => [
-                'departure_at' => optional($trip->departure_time)->toIso8601String(),
-                'actual_start_time' => optional($trip->actual_start_time)->toIso8601String(),
-                'completed_at' => optional($trip->completed_at)->toIso8601String(),
+                'departure_at' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
+                'actual_start_time' => \App\Support\ApiDateTime::toAppIso($trip->actual_start_time),
+                'completed_at' => \App\Support\ApiDateTime::toAppIso($trip->completed_at),
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
                 'route_polyline' => $trip->route_polyline,

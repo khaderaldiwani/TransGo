@@ -196,8 +196,8 @@ class ReceiptService
             ],
             'trip_info' => $trip ? [
                 'trip_id' => $trip->trip_id,
-                'departure_time' => optional($departureTime)->toIso8601String(),
-                'arrival_time' => optional($arrivalTime)->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($departureTime),
+                'arrival_time' => \App\Support\ApiDateTime::toAppIso($arrivalTime),
                 'start_point' => $trip->startGovernorate?->name,
                 'end_point' => $trip->endGovernorate?->name,
             ] : null,

@@ -72,7 +72,7 @@ class TripPreviewService
 
                 return [
                     ...$point,
-                    'expected_arrival_time' => $expectedArrivalTime?->toIso8601String(),
+                    'expected_arrival_time' => \App\Support\ApiDateTime::toAppIso($expectedArrivalTime),
                 ];
             })->values()->all(),
         ];

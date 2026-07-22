@@ -216,7 +216,7 @@ class NotificationDispatchService
     {
         return [
             'trip_id' => $trip->trip_id,
-            'departure_time' => optional($trip->departure_time)->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
         ];
     }
 

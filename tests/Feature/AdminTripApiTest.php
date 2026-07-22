@@ -60,6 +60,37 @@ class AdminTripApiTest extends TestCase
             ->assertJsonPath('data.pagination.total', 1);
     }
 
+    public function test_admin_trip_list_returns_all_trips_without_default_pagination_limit(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin@example.com');
+
+        $statusPending = $this->createTripStatus(TripStatus::PENDING, 'Pending');
+        [$damascus, $homs] = $this->createGovernorates();
+
+        for ($index = 0; $index < 18; $index++) {
+            $this->createTripScenario([
+                'driver_name' => 'Driver '.$index,
+                'status_id' => $statusPending->status_id,
+                'start_governorate_id' => $damascus->governorate_id,
+                'end_governorate_id' => $homs->governorate_id,
+                'departure_time' => now()->addHours($index + 1),
+            ]);
+        }
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/admin/trips');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(18, 'data.items')
+            ->assertJsonPath('data.pagination.current_page', 1)
+            ->assertJsonPath('data.pagination.per_page', 18)
+            ->assertJsonPath('data.pagination.total', 18)
+            ->assertJsonPath('data.pagination.last_page', 1);
+    }
+
     public function test_admin_can_view_full_trip_details(): void
     {
         $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin@example.com');

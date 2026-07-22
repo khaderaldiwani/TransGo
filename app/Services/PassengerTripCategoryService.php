@@ -234,7 +234,7 @@ class PassengerTripCategoryService
                 'allow_shared' => (bool) $trip->allow_shared,
                 'allow_private' => (bool) $trip->allow_private,
             ],
-            'departure_time' => $trip->departure_time?->toIso8601String(),
+            'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
             'from' => [
                 'governorate_id' => $trip->start_governorate_id,
                 'name' => $trip->startGovernorate?->name,

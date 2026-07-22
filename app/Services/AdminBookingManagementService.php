@@ -146,7 +146,7 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
 {
     return [
         'trip_id' => $trip->trip_id,
-        'departure_time' => $trip->departure_time?->toIso8601String(),
+        'departure_time' => \App\Support\ApiDateTime::toAppIso($trip->departure_time),
         'driver_name' => $trip->driver?->user?->full_name, // ✅ اسم السائق
         'from' => $trip->startGovernorate?->name,
         'to' => $trip->endGovernorate?->name,
@@ -253,14 +253,14 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
                     'lat' => $booking->pickupPoint?->latitude, // افتراض وجود هذا الحقل
                     'lng' => $booking->pickupPoint?->longitude, // افتراض وجود هذا الحقل
                 ],
-                'meeting_time' => $booking->pickupPoint?->meeting_time?->toIso8601String(),
+                'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
                 'point_status' => $this->getPickupPointStatus($booking->pickupPoint), // 'new' or 'existing'
             ],
             
             // Trip Information (context)
             'trip_info' => [
                 'trip_id' => $booking->trip?->trip_id,
-                'departure_time' => $booking->trip?->departure_time?->toIso8601String(),
+                'departure_time' => \App\Support\ApiDateTime::toAppIso($booking->trip?->departure_time),
                 'from' => $booking->trip?->startGovernorate?->name,
                 'to' => $booking->trip?->endGovernorate?->name,
                 'driver_name' => $booking->trip?->driver?->user?->full_name,
