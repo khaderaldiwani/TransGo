@@ -265,6 +265,45 @@ class RatingRepository
             ->all();
     }
 
+    public function findAdminRatingById(int $ratingId): array
+    {
+        $review = DriverReview::query()
+            ->with([
+                'driver.roles',
+                'driver.driverProfile',
+                'passenger.roles',
+                'booking.trip',
+                'hiddenBy',
+            ])
+            ->where('rated_user_type', Role::ROLE_DRIVER)
+            ->findOrFail($ratingId);
+
+        $classification = match (true) {
+            $review->rating >= 4 => 'good',
+            $review->rating > 2 && $review->rating < 4 => 'average',
+            default => 'low',
+        };
+
+        return [
+            'rating_id' => $review->review_id,
+            'booking_id' => $review->booking_id,
+            'trip_id' => $review->booking?->trip_id,
+            'rated_user_type' => $review->rated_user_type,
+            'rated_user' => $this->transformUser($review->driver),
+            'author' => $this->transformUser($review->passenger),
+            'stars' => $review->rating,
+            'classification' => $classification,
+            'comment' => $review->comment,
+            'is_visible' => (bool) $review->is_visible,
+            'hidden_at' => $review->hidden_at?->toIso8601String(),
+            'hidden_by' => $review->hiddenBy ? [
+                'user_id' => $review->hiddenBy->user_id,
+                'full_name' => $review->hiddenBy->full_name,
+            ] : null,
+            'created_at' => $review->created_at?->toIso8601String(),
+        ];
+    }
+
     public function toggleRatingVisibility(int $ratingId, User $actor): DriverReview
     {
         $review = DriverReview::query()->findOrFail($ratingId);

@@ -45,6 +45,23 @@ class RatingController extends Controller
         }
     }
 
+    public function show(int $ratingId)
+    {
+        try {
+            return ApiResponse::success(
+                'Rating retrieved successfully.',
+                200,
+                $this->tripRatingService->getAdminRatingById($ratingId)
+            );
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return ApiResponse::error('Rating not found.', 404);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('Unexpected error while retrieving rating.', 500);
+        }
+    }
+
     public function hide(int $ratingId)
     {
         try {

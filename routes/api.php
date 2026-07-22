@@ -135,6 +135,7 @@ Route::prefix('v1/admin')->group(function () {
         Route::get('/complaints/{complaintId}/audit', [AdminComplaintController::class, 'auditTrail'])->whereNumber('complaintId');
         Route::get('/ratings', [AdminRatingController::class, 'index']);
         Route::get('/ratings/list', [AdminRatingController::class, 'listRatings']);
+        Route::get('/ratings/{ratingId}', [AdminRatingController::class, 'show'])->whereNumber('ratingId');
         Route::patch('/ratings/{ratingId}/hide', [AdminRatingController::class, 'hide'])->whereNumber('ratingId');
     
         //reports 

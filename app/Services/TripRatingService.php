@@ -68,6 +68,11 @@ class TripRatingService
         return $this->ratingRepository->getAdminRatingAnalytics($filters);
     }
 
+    public function getAdminRatingById(int $ratingId): array
+    {
+        return $this->ratingRepository->findAdminRatingById($ratingId);
+    }
+
     public function getAdminRatingsList(array $filters): array
     {
         $analytics = $this->ratingRepository->getAdminRatingAnalytics($filters);

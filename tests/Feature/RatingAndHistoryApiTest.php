@@ -246,6 +246,22 @@ class RatingAndHistoryApiTest extends TestCase
 
         Sanctum::actingAs($admin);
 
+        $this->getJson('/api/v1/admin/ratings/'.$lowReview->review_id)
+            ->assertOk()
+            ->assertJsonPath('data.rating_id', $lowReview->review_id)
+            ->assertJsonPath('data.booking_id', $completedBooking->booking_id)
+            ->assertJsonPath('data.trip_id', $completedTrip->trip_id)
+            ->assertJsonPath('data.stars', 1)
+            ->assertJsonPath('data.classification', 'low')
+            ->assertJsonPath('data.comment', 'Unsafe behavior')
+            ->assertJsonPath('data.is_visible', true)
+            ->assertJsonPath('data.rated_user.user_id', $driver->user_id)
+            ->assertJsonPath('data.author.user_id', $passenger->user_id);
+
+        $this->getJson('/api/v1/admin/ratings/999999')
+            ->assertNotFound()
+            ->assertJsonPath('message', 'Rating not found.');
+
         $this->getJson('/api/v1/admin/ratings?user_type=driver&from_date='.now()->subDays(3)->toDateString().'&to_date='.now()->toDateString())
             ->assertOk()
             ->assertJsonPath('data.summary.average_rating', 1)
