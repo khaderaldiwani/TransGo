@@ -111,8 +111,6 @@ class AuthService
             ];
         }
 
-        $user->tokens()->delete();
-
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [
@@ -145,7 +143,6 @@ class AuthService
             'must_change_password' => false,
         ]);
 
-        $user->tokens()->delete();
     }
     function resetPassword(array $data)
     {
