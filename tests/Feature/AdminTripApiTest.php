@@ -91,6 +91,33 @@ class AdminTripApiTest extends TestCase
             ->assertJsonPath('data.pagination.last_page', 1);
     }
 
+    public function test_admin_trip_list_returns_localized_trip_type_display_without_changing_trip_type(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin-localization@example.com');
+        $statusPending = $this->createTripStatus(TripStatus::PENDING, 'Pending');
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $this->createTripScenario([
+            'status_id' => $statusPending->status_id,
+            'start_governorate_id' => $damascus->governorate_id,
+            'end_governorate_id' => $homs->governorate_id,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->withHeader('Accept-Language', 'ar-SY,ar;q=0.9')
+            ->getJson('/api/v1/admin/trips')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.trip_type', 'both')
+            ->assertJsonPath('data.items.0.trip_type_display', 'كلاهما');
+
+        $this->withHeader('Accept-Language', 'en-US,en;q=0.9')
+            ->getJson('/api/v1/admin/trips')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.trip_type', 'both')
+            ->assertJsonPath('data.items.0.trip_type_display', 'Both');
+    }
+
     public function test_admin_can_search_trips_by_driver_name_without_numeric_trip_id_error(): void
     {
         $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin@example.com');

@@ -340,6 +340,7 @@ class AdminTripManagementService
     {
         $meta = $this->buildTripMeta($trip);
         $vehicle = $trip->driver?->vehicles->first();
+        $tripType = $this->resolveTripType($trip);
 
         return [
             'trip_id' => $trip->trip_id,
@@ -349,7 +350,8 @@ class AdminTripManagementService
                 'from' => $trip->startGovernorate?->name,
                 'to' => $trip->endGovernorate?->name,
             ],
-            'trip_type' => $this->resolveTripType($trip),
+            'trip_type' => $tripType,
+            'trip_type_display' => $this->tripTypeDisplay($tripType),
             'vehicle' => [
                 'image' => $vehicle?->images->first()?->image_url,
                 'type' => $vehicle?->car_type,
@@ -659,6 +661,24 @@ class AdminTripManagementService
         }
 
         return 'shared';
+    }
+
+    private function tripTypeDisplay(string $tripType): string
+    {
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+
+        return match ($language) {
+            'ar' => match ($tripType) {
+                'both' => 'كلاهما',
+                'private' => 'خاصة',
+                default => 'مشتركة',
+            },
+            default => match ($tripType) {
+                'both' => 'Both',
+                'private' => 'Private',
+                default => 'Shared',
+            },
+        };
     }
 
     private function resolveTripStatus(string $statusKey): TripStatus
