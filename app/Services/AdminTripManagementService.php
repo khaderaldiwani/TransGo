@@ -96,7 +96,7 @@ class AdminTripManagementService
         $activeStatusId = $this->resolveTripStatus(TripStatus::ACTIVE)->status_id;
 
         $items = $this->applyNonStatusFilters($this->baseTripQuery()->where('status_id', $activeStatusId), $filters)
-            ->orderBy('departure_time')
+            ->orderByDesc('departure_time')
             ->get()
             ->map(fn (Trip $trip) => $this->transformTrackingTrip($trip))
             ->values();
