@@ -22,6 +22,8 @@ class TripTrackingShareApiTest extends TestCase
 
     public function test_passenger_can_create_public_tracking_share_and_guest_can_view_sanitized_tracking(): void
     {
+        config(['app.tracking_web_url' => 'https://tracking-web-xkqw.onrender.com']);
+
         [$active] = $this->seedTripStatuses();
         $accepted = $this->seedBookingStatus();
         [$start, $end] = $this->createGovernorates();
@@ -73,6 +75,11 @@ class TripTrackingShareApiTest extends TestCase
             ]);
 
         $token = $shareResponse->json('data.token');
+
+        $shareResponse->assertJsonPath(
+            'data.share_url',
+            "https://tracking-web-xkqw.onrender.com/tracking/share/{$token}"
+        );
 
         $publicResponse = $this->getJson("/api/v1/public/tracking/{$token}");
 

@@ -181,7 +181,7 @@ class TripTrackingShareService
             'trip_id' => $share->trip_id,
             'booking_id' => $share->booking_id,
             'token' => $share->token,
-            'share_url' => rtrim((string) config('app.url'), '/').$publicPath,
+            'share_url' => rtrim((string) config('app.tracking_web_url'), '/').$publicPath,
             'public_path' => $publicPath,
             'api_endpoint' => "/api/v1/public/tracking/{$share->token}",
             'expires_at' => optional($share->expires_at)->toIso8601String(),

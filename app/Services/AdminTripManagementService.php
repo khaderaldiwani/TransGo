@@ -278,10 +278,13 @@ class AdminTripManagementService
             $search = $filters['search'];
 
             $query->where(function (Builder $innerQuery) use ($search) {
-                $innerQuery->where('trip_id', $search)
-                    ->orWhereHas('driver.user', function (Builder $driverQuery) use ($search) {
-                        $driverQuery->where('full_name', 'like', "%{$search}%");
-                    });
+                if (ctype_digit($search)) {
+                    $innerQuery->where('trip_id', (int) $search);
+                }
+
+                $innerQuery->orWhereHas('driver.user', function (Builder $driverQuery) use ($search) {
+                    $driverQuery->where('full_name', 'like', "%{$search}%");
+                });
             });
         }
 

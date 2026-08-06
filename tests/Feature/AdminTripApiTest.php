@@ -91,6 +91,32 @@ class AdminTripApiTest extends TestCase
             ->assertJsonPath('data.pagination.last_page', 1);
     }
 
+    public function test_admin_can_search_trips_by_driver_name_without_numeric_trip_id_error(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin@example.com');
+
+        $statusPending = $this->createTripStatus(TripStatus::PENDING, 'Pending');
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $trip = $this->createTripScenario([
+            'driver_name' => 'lith',
+            'status_id' => $statusPending->status_id,
+            'start_governorate_id' => $damascus->governorate_id,
+            'end_governorate_id' => $homs->governorate_id,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/admin/trips?search=lith&status=pending');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.items.0.trip_id', $trip->trip_id)
+            ->assertJsonPath('data.items.0.driver.full_name', 'lith')
+            ->assertJsonPath('data.pagination.total', 1);
+    }
+
     public function test_admin_can_view_full_trip_details(): void
     {
         $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin@example.com');
