@@ -79,7 +79,9 @@ class ComplaintReportService
                     'complaint_id' => $complaint->complaint_id,
                     'complainant_name' => $complaint->complainant?->full_name,
                     'complainant_type' => $complaint->complainant_role,
+                    'complainant_type_display' => $this->localizedDisplay('complainant_type', $complaint->complainant_role),
                     'complaint_type' => $complaint->complaint_type,
+                    'complaint_type_display' => $this->localizedDisplay('complaint_type', $complaint->complaint_type),
                     'status' => $this->normalizeStatusForResponse($complaint->status),
                     'description' => $complaint->description,
                     'created_at' => $complaint->created_at?->format('Y-m-d H:i:s'),
@@ -203,6 +205,7 @@ class ComplaintReportService
         return collect($statusCounts)->map(function ($count, $status) use ($total) {
             return [
                 'status' => $status,
+                'status_display' => $this->localizedDisplay('status', $status),
                 'count' => $count,
                 'percentage' => $total > 0 ? round(($count / $total) * 100, 1) : 0,
             ];
@@ -214,6 +217,7 @@ class ComplaintReportService
         return collect($typeCounts)->map(function ($item) use ($total) {
             return [
                 'type' => $item['complaint_type'],
+                'type_display' => $this->localizedDisplay('complaint_type', $item['complaint_type']),
                 'count' => $item['count'],
                 'percentage' => $total > 0 ? round(($item['count'] / $total) * 100, 1) : 0,
             ];
@@ -225,6 +229,7 @@ class ComplaintReportService
         return collect($complainantTypeCounts)->map(function ($item) use ($total) {
             return [
                 'complainant_type' => $item['complainant_role'],
+                'complainant_type_display' => $this->localizedDisplay('complainant_type', $item['complainant_role']),
                 'count' => $item['count'],
                 'percentage' => $total > 0 ? round(($item['count'] / $total) * 100, 1) : 0,
             ];
@@ -255,5 +260,58 @@ class ComplaintReportService
         }
 
         return array_values(array_filter(array_map('trim', explode(',', $governorates))));
+    }
+
+    private function localizedDisplay(string $type, ?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+        $translations = [
+            'ar' => [
+                'complainant_type' => [
+                    'passenger' => 'راكب',
+                    'driver' => 'سائق',
+                ],
+                'status' => [
+                    'open' => 'مفتوحة',
+                    'in_progress' => 'قيد المعالجة',
+                    'closed' => 'مغلقة',
+                ],
+                'complaint_type' => [
+                    'ride' => 'رحلة',
+                    'trip' => 'رحلة',
+                    'driver' => 'سائق',
+                    'passenger' => 'راكب',
+                    'payment' => 'دفع',
+                    'technical' => 'مشكلة تقنية',
+                    'system' => 'النظام',
+                ],
+            ],
+            'en' => [
+                'complainant_type' => [
+                    'passenger' => 'Passenger',
+                    'driver' => 'Driver',
+                ],
+                'status' => [
+                    'open' => 'Open',
+                    'in_progress' => 'In progress',
+                    'closed' => 'Closed',
+                ],
+                'complaint_type' => [
+                    'ride' => 'Ride',
+                    'trip' => 'Trip',
+                    'driver' => 'Driver',
+                    'passenger' => 'Passenger',
+                    'payment' => 'Payment',
+                    'technical' => 'Technical issue',
+                    'system' => 'System',
+                ],
+            ],
+        ];
+
+        return $translations[$language][$type][$value] ?? $value;
     }
 }

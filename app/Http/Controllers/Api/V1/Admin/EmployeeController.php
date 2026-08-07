@@ -31,6 +31,13 @@ class EmployeeController extends Controller
     {
         try {
             $employee = $this->employeeManagementService->getEmployee($id);
+            $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+            $employee->roles->each(function ($role) use ($language) {
+                $role->setAttribute('name_display', match ($language) {
+                    'ar' => $role->name === 'employee' ? 'موظف' : $role->name,
+                    default => $role->name === 'employee' ? 'Employee' : $role->name,
+                });
+            });
             return ApiResponse::success('تم جلب بيانات الموظف بنجاح.', 200, $employee);
         } catch (RuntimeException $e) {
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);

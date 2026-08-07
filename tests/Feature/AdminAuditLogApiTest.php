@@ -64,11 +64,22 @@ class AdminAuditLogApiTest extends TestCase
             ->assertJsonPath('data.data.0.id', $matchingLog->id)
             ->assertJsonPath('data.data.0.action', 'wallet.topup')
             ->assertJsonPath('data.data.0.action_label', 'Wallet Topup')
+            ->assertJsonPath('data.data.0.action_label_display', 'Wallet Topup')
+            ->assertJsonPath('data.data.0.description', 'Wallet topped up')
+            ->assertJsonPath('data.data.0.description_display', 'Wallet topped up')
             ->assertJsonPath('data.data.0.actor.full_name', 'Main Admin')
             ->assertJsonPath('data.data.0.actor.primary_role', Role::ROLE_ADMIN)
             ->assertJsonPath('data.data.0.entity.label', 'Wallet')
             ->assertJsonPath('data.data.0.created_at.display', $matchingLog->created_at->format('Y-m-d H:i:s'))
             ->assertJsonCount(1, 'data.data');
+
+        $this->withHeader('Accept-Language', 'ar')
+            ->getJson('/api/v1/admin/audit-logs?actor_name=Main&action=wallet.topup&date_from='.now()->subDays(2)->toDateString().'&date_to='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('data.data.0.action', 'wallet.topup')
+            ->assertJsonPath('data.data.0.action_label_display', 'شحن المحفظة')
+            ->assertJsonPath('data.data.0.description', 'Wallet topped up')
+            ->assertJsonPath('data.data.0.description_display', "تم شحن المحفظة رقم {$matchingLog->entity_id} بواسطة Main Admin.");
     }
 
     public function test_employee_cannot_view_audit_logs(): void

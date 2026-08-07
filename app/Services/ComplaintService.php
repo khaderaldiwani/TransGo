@@ -274,8 +274,10 @@ class ComplaintService
             'complaint_code' => $complaint->complaint_code,
             'complaint_type' => $complaint->complaint_type,
             'status' => $complaint->status,
+            'status_display' => $this->localizedDisplay('status', $complaint->status),
             'complainant_name' => $complaint->complainant?->full_name,
             'complainant_role' => $complaint->complainant_role,
+            'complainant_role_display' => $this->localizedDisplay('complainant_role', $complaint->complainant_role),
             'created_at' => $complaint->created_at?->toIso8601String(),
         ];
     }
@@ -288,7 +290,9 @@ class ComplaintService
                 'complaint_code' => $complaint->complaint_code,
                 'created_at' => $complaint->created_at?->toIso8601String(),
                 'complaint_type' => $complaint->complaint_type,
+                'complaint_type_display' => $this->localizedDisplay('complaint_type', $complaint->complaint_type),
                 'status' => $complaint->status,
+                'status_display' => $this->localizedDisplay('status', $complaint->status),
                 'resolved_at' => $complaint->resolved_at?->toIso8601String(),
             ],
             'complainant_info' => [
@@ -368,5 +372,54 @@ class ComplaintService
             'is_sent' => true,
             'sent_at' => now(),
         ]);
+    }
+
+    private function localizedDisplay(string $type, string $value): string
+    {
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+        $translations = [
+            'ar' => [
+                'complainant_role' => [
+                    'driver' => 'سائق',
+                    'passenger' => 'راكب',
+                ],
+                'status' => [
+                    'new' => 'جديدة',
+                    'in_progress' => 'قيد المعالجة',
+                    'completed' => 'مكتملة',
+                ],
+                'complaint_type' => [
+                    'ride' => 'رحلة',
+                    'trip' => 'رحلة',
+                    'driver' => 'سائق',
+                    'passenger' => 'راكب',
+                    'payment' => 'دفع',
+                    'technical' => 'مشكلة تقنية',
+                    'system' => 'النظام',
+                ],
+            ],
+            'en' => [
+                'complainant_role' => [
+                    'driver' => 'Driver',
+                    'passenger' => 'Passenger',
+                ],
+                'status' => [
+                    'new' => 'New',
+                    'in_progress' => 'In progress',
+                    'completed' => 'Completed',
+                ],
+                'complaint_type' => [
+                    'ride' => 'Ride',
+                    'trip' => 'Trip',
+                    'driver' => 'Driver',
+                    'passenger' => 'Passenger',
+                    'payment' => 'Payment',
+                    'technical' => 'Technical issue',
+                    'system' => 'System',
+                ],
+            ],
+        ];
+
+        return $translations[$language][$type][$value] ?? $value;
     }
 }

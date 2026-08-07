@@ -213,6 +213,7 @@ class DriverPerformanceService
             'total_rides' => $totalRides,
             'cancellation_rate' => $cancellationRate,
             'performance_classification' => $performanceClassification,
+            'performance_classification_display' => $this->performanceClassificationDisplay($performanceClassification),
         ];
     }
 
@@ -225,6 +226,21 @@ class DriverPerformanceService
         } else {
             return 'Low';
         }
+    }
+
+    private function performanceClassificationDisplay(string $classification): string
+    {
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+
+        return match ($language) {
+            'ar' => match ($classification) {
+                'Good' => 'جيد',
+                'Average' => 'متوسط',
+                'Low' => 'ضعيف',
+                default => $classification,
+            },
+            default => $classification,
+        };
     }
 
     private function getRideBreakdown(Collection $bookings): array

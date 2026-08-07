@@ -109,6 +109,7 @@ class PassengerManagementService
                 return [
                     'id' => $role->id ?? $role->role_id ?? null,
                     'name' => $role->name,
+                    'name_display' => $this->roleNameDisplay($role->name),
                     'created_at' => $role->created_at?->toIso8601String(),
                     'updated_at' => $role->updated_at?->toIso8601String(),
                     'pivot' => [
@@ -134,6 +135,22 @@ class PassengerManagementService
             'completed_reservations_count' => $counts['completed'],
             'rating' => $this->buildPassengerRating($user),
         ];
+    }
+
+    private function roleNameDisplay(string $roleName): string
+    {
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+
+        return match ($language) {
+            'ar' => match ($roleName) {
+                Role::ROLE_PASSENGER => 'راكب',
+                default => $roleName,
+            },
+            default => match ($roleName) {
+                Role::ROLE_PASSENGER => 'Passenger',
+                default => $roleName,
+            },
+        };
     }
 
     private function buildPassengerReservationCounts(User $user): array

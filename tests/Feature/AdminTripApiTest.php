@@ -227,7 +227,8 @@ class AdminTripApiTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->getJson('/api/v1/admin/trips/'.$trip->trip_id);
+        $response = $this->withHeader('Accept-Language', 'ar')
+            ->getJson('/api/v1/admin/trips/'.$trip->trip_id);
 
         $response
             ->assertOk()
@@ -236,6 +237,15 @@ class AdminTripApiTest extends TestCase
             ->assertJsonPath('data.route.from', 'دمشق')
             ->assertJsonPath('data.booking_info.bookings.0.booking_code', 'BK-1001')
             ->assertJsonPath('data.booking_info.bookings.0.passenger.full_name', 'راكب الاختبار');
+        $response
+            ->assertJsonPath('data.booking_info.bookings.0.payment.method', 'cash')
+            ->assertJsonPath('data.booking_info.bookings.0.payment.method_display', 'نقداً');
+
+        $this->withHeader('Accept-Language', 'en')
+            ->getJson('/api/v1/admin/trips/'.$trip->trip_id)
+            ->assertOk()
+            ->assertJsonPath('data.booking_info.bookings.0.payment.method', 'cash')
+            ->assertJsonPath('data.booking_info.bookings.0.payment.method_display', 'Cash');
     }
 
     public function test_admin_can_fetch_delayed_trips_and_cancel_trip_with_notifications(): void

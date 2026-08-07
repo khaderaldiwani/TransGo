@@ -445,6 +445,7 @@ class AdminTripManagementService
                 'trip_type' => $this->resolveTripType($trip),
                 'bookings' => $trip->bookings->map(function ($booking) {
                     $payment = $booking->payments->sortByDesc('payment_id')->first();
+                    $paymentMethod = $payment?->payment_method ?? $booking->payment_method;
 
                     return [
                         'booking_id' => $booking->booking_id,
@@ -471,7 +472,8 @@ class AdminTripManagementService
                             'governorate' => $booking->pickupPoint?->governorate?->name,
                         ],
                         'payment' => [
-                            'method' => $payment?->payment_method ?? $booking->payment_method,
+                            'method' => $paymentMethod,
+                            'method_display' => $this->paymentMethodDisplay($paymentMethod),
                             'status' => $payment?->payment_status,
                             'amount' => $payment?->amount !== null ? (float) $payment->amount : (float) $booking->total_amount,
                         ],
@@ -677,6 +679,28 @@ class AdminTripManagementService
                 'both' => 'Both',
                 'private' => 'Private',
                 default => 'Shared',
+            },
+        };
+    }
+
+    private function paymentMethodDisplay(?string $paymentMethod): ?string
+    {
+        if ($paymentMethod === null) {
+            return null;
+        }
+
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+
+        return match ($language) {
+            'ar' => match ($paymentMethod) {
+                'cash' => 'نقداً',
+                'electronic' => 'إلكتروني',
+                default => $paymentMethod,
+            },
+            default => match ($paymentMethod) {
+                'cash' => 'Cash',
+                'electronic' => 'Electronic',
+                default => $paymentMethod,
             },
         };
     }

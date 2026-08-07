@@ -131,7 +131,15 @@ class AdminDriverWalletApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.data.0.transaction_id', $firstTransaction->transaction_id)
+            ->assertJsonPath('data.data.0.status', 'completed')
+            ->assertJsonPath('data.data.0.status_display', 'Completed')
             ->assertJsonCount(1, 'data.data');
+
+        $this->withHeader('Accept-Language', 'ar')
+            ->getJson("/api/v1/admin/wallet-topups?driver_id={$firstDriver->user_id}&date_from=".now()->subDays(2)->toDateString().'&date_to='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('data.data.0.status', 'completed')
+            ->assertJsonPath('data.data.0.status_display', 'مكتملة');
     }
 
     public function test_admin_cannot_top_up_same_driver_more_than_once_within_a_minute(): void

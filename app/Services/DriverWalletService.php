@@ -133,7 +133,13 @@ class DriverWalletService
             ->where('transaction_type', 'topup')
             ->orderByDesc('created_at');
 
-        return $this->applyTopUpFilters($query, $filters, 'driver_id')->paginate($filters['per_page'] ?? 15);
+        return $this->applyTopUpFilters($query, $filters, 'driver_id')
+            ->paginate($filters['per_page'] ?? 15)
+            ->through(function (WalletTransaction $transaction) {
+                $transaction->setAttribute('status_display', $this->statusDisplay($transaction->status));
+
+                return $transaction;
+            });
     }
 
     public function listDriverTopUps(array $filters): LengthAwarePaginator
@@ -178,5 +184,30 @@ class DriverWalletService
         }
 
         return $query;
+    }
+
+    private function statusDisplay(string $status): string
+    {
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+
+        return match ($language) {
+            'ar' => match ($status) {
+                'completed' => 'مكتملة',
+                'pending' => 'قيد الانتظار',
+                'failed' => 'فاشلة',
+                'canceled', 'cancelled' => 'ملغاة',
+                'reversed' => 'معكوسة',
+                default => $status,
+            },
+            default => match ($status) {
+                'completed' => 'Completed',
+                'pending' => 'Pending',
+                'failed' => 'Failed',
+                'canceled' => 'Canceled',
+                'cancelled' => 'Cancelled',
+                'reversed' => 'Reversed',
+                default => $status,
+            },
+        };
     }
 }

@@ -111,10 +111,20 @@ class AdminBookingApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.items.0.trip_id', $firstTrip->trip_id)
-            ->assertJsonPath('data.items.0.bookings.0.booking_code', 'BK-1001')
-            ->assertJsonPath('data.items.0.bookings.0.passenger.full_name', 'راكب أحمد')
+            ->assertJsonPath('data.items.0.bookings.0.passenger_name', 'راكب أحمد')
             ->assertJsonPath('data.pagination.total', 1)
             ->assertJsonPath('data.summary.booking_count', 1);
+        $response
+            ->assertJsonPath('data.items.0.bookings.0.payment_method', 'cash')
+            ->assertJsonPath('data.items.0.bookings.0.payment_method_display', 'Cash')
+            ->assertJsonPath('data.items.0.bookings.0.status_display', 'Accepted');
+
+        $this->withHeader('Accept-Language', 'ar')
+            ->getJson('/api/v1/admin/bookings?status=accepted&payment_method=cash')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.bookings.0.payment_method', 'cash')
+            ->assertJsonPath('data.items.0.bookings.0.payment_method_display', 'نقداً')
+            ->assertJsonPath('data.items.0.bookings.0.status_display', 'مقبول');
     }
 
     private function createBackofficeUser(string $roleName, string $fullName, string $email): User

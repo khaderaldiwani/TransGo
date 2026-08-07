@@ -161,8 +161,10 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
                 'passenger_rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                 'seats_reserved' => (int) ($booking->seats_reserved ?? 0), // ✅ عدد المقاعد المطلوبة
                 'payment_method' => $booking->payment_method, // ✅ طريقة الدفع
+                'payment_method_display' => $this->localizedDisplay('payment_method', $booking->payment_method),
                 'booking_details_url' => "/api/bookings/{$booking->booking_id}", // ✅ زر عرض تفاصيل الحجز
                 'status' => $booking->status?->status_name,
+                'status_display' => $this->localizedDisplay('booking_status', $booking->status?->status_key),
                 'total_amount' => (float) ($booking->total_amount ?? 0),
                 'created_at' => $booking->created_at?->toIso8601String(),
             ];
@@ -212,6 +214,8 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
 
         // Get attendance status (you may need to add this field to your bookings table)
         $attendanceStatus = $this->getAttendanceStatus($booking);
+        $paymentStatus = $this->getPaymentStatus($booking);
+        $pointStatus = $this->getPickupPointStatus($booking->pickupPoint);
         
         // Get rejection/cancellation reason
         $reason = $this->getCancellationReason($booking);
@@ -225,6 +229,7 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
                 'rating' => $booking->passenger?->rating !== null ? (float) $booking->passenger->rating : null,
                 'seats_reserved' => (int) ($booking->seats_reserved ?? 0),
                 'attendance_status' => $attendanceStatus, // 'not_recorded', 'present', 'absent'
+                'attendance_status_display' => $this->localizedDisplay('attendance_status', $attendanceStatus),
             ],
             
             // Booking Information
@@ -240,7 +245,9 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
                 ],
                 'rejection_cancellation_reason' => $reason, // سبب الرفض أو الإلغاء
                 'payment_method' => $booking->payment_method, // 'cash' or 'online'
-                'payment_status' => $this->getPaymentStatus($booking),
+                'payment_method_display' => $this->localizedDisplay('payment_method', $booking->payment_method),
+                'payment_status' => $paymentStatus,
+                'payment_status_display' => $this->localizedDisplay('payment_status', $paymentStatus),
             ],
             
             // Pickup Point Information
@@ -254,7 +261,8 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
                     'lng' => $booking->pickupPoint?->longitude, // افتراض وجود هذا الحقل
                 ],
                 'meeting_time' => \App\Support\ApiDateTime::toAppIso($booking->pickupPoint?->meeting_time),
-                'point_status' => $this->getPickupPointStatus($booking->pickupPoint), // 'new' or 'existing'
+                'point_status' => $pointStatus, // 'new' or 'existing'
+                'point_status_display' => $this->localizedDisplay('point_status', $pointStatus),
             ],
             
             // Trip Information (context)
@@ -442,5 +450,78 @@ private function transformTripWithBookings(Trip $trip, Collection $bookings): ar
         }
         
         return 'existing';
+    }
+
+    private function localizedDisplay(string $type, ?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $language = request()->getPreferredLanguage(['ar', 'en']) ?? 'en';
+        $translations = [
+            'ar' => [
+                'payment_method' => [
+                    'cash' => 'نقداً',
+                    'electronic' => 'إلكتروني',
+                ],
+                'booking_status' => [
+                    'pending' => 'قيد الانتظار',
+                    'accepted' => 'مقبول',
+                    'rejected' => 'مرفوض',
+                    'canceled' => 'ملغى',
+                    'completed' => 'منتهي',
+                ],
+                'attendance_status' => [
+                    'not_recorded' => 'غير مسجل',
+                    'present' => 'حاضر',
+                    'absent' => 'غائب',
+                ],
+                'payment_status' => [
+                    'pending' => 'قيد الانتظار',
+                    'paid' => 'مدفوع',
+                    'completed' => 'مكتمل',
+                    'failed' => 'فشل الدفع',
+                    'refunded' => 'مسترد',
+                ],
+                'point_status' => [
+                    'new' => 'جديدة',
+                    'existing' => 'موجودة مسبقاً',
+                    'not_specified' => 'غير محددة',
+                ],
+            ],
+            'en' => [
+                'payment_method' => [
+                    'cash' => 'Cash',
+                    'electronic' => 'Electronic',
+                ],
+                'booking_status' => [
+                    'pending' => 'Pending',
+                    'accepted' => 'Accepted',
+                    'rejected' => 'Rejected',
+                    'canceled' => 'Canceled',
+                    'completed' => 'Completed',
+                ],
+                'attendance_status' => [
+                    'not_recorded' => 'Not recorded',
+                    'present' => 'Present',
+                    'absent' => 'Absent',
+                ],
+                'payment_status' => [
+                    'pending' => 'Pending',
+                    'paid' => 'Paid',
+                    'completed' => 'Completed',
+                    'failed' => 'Failed',
+                    'refunded' => 'Refunded',
+                ],
+                'point_status' => [
+                    'new' => 'New',
+                    'existing' => 'Existing',
+                    'not_specified' => 'Not specified',
+                ],
+            ],
+        ];
+
+        return $translations[$language][$type][$value] ?? $value;
     }
 }

@@ -95,6 +95,21 @@ class AdminBookingDetailsApiTest extends TestCase
             ->assertJsonPath('data.passenger_info.attendance_status', 'not_recorded')
             ->assertJsonPath('data.pickup_point_info.location_coordinates.lat', '33.5138000')
             ->assertJsonPath('data.trip_info.driver_name', 'أحمد السائق');
+        $response
+            ->assertJsonPath('data.passenger_info.attendance_status_display', 'Not recorded')
+            ->assertJsonPath('data.booking_info.payment_method', 'cash')
+            ->assertJsonPath('data.booking_info.payment_method_display', 'Cash')
+            ->assertJsonPath('data.booking_info.payment_status', 'paid')
+            ->assertJsonPath('data.booking_info.payment_status_display', 'Paid')
+            ->assertJsonPath('data.pickup_point_info.point_status_display', 'New');
+
+        $this->withHeader('Accept-Language', 'ar')
+            ->getJson('/api/v1/admin/bookings/'.$booking->booking_id)
+            ->assertOk()
+            ->assertJsonPath('data.passenger_info.attendance_status_display', 'غير مسجل')
+            ->assertJsonPath('data.booking_info.payment_method_display', 'نقداً')
+            ->assertJsonPath('data.booking_info.payment_status_display', 'مدفوع')
+            ->assertJsonPath('data.pickup_point_info.point_status_display', 'جديدة');
     }
 
     public function test_admin_can_update_booking_status_to_rejected(): void
