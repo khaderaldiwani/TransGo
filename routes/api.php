@@ -134,6 +134,7 @@ Route::prefix('v1/admin')->group(function () {
         // Drivers Apis  ----
         Route::get('/drivers', [DriverController::class, 'index']);
         Route::get('/drivers/low-rated', [AdminRatingController::class, 'lowRatedDrivers']);
+        Route::get('/drivers/{id}/rating', [AdminRatingController::class, 'driverRating'])->whereNumber('id');
         Route::get('/drivers/{id}', [DriverController::class, 'show']);
         // except this 
         Route::post('/drivers', [DriverController::class, 'store']);

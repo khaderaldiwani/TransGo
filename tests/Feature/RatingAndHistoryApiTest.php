@@ -94,6 +94,74 @@ class RatingAndHistoryApiTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_admin_can_get_driver_rating_by_id(): void
+    {
+        $this->seedStatuses();
+        $admin = $this->createAdmin();
+        [$passenger, $driver] = $this->createPassengerAndDriver('driver-admin-rating@example.com', '0999998877');
+        [$damascus, $homs] = $this->createGovernorates();
+
+        $completedBookingStatusId = BookingStatus::query()->where('status_key', 'completed')->value('status_id');
+
+        $firstTrip = $this->createTrip($driver, TripStatus::COMPLETED, $damascus, $homs);
+        $secondTrip = $this->createTrip($driver, TripStatus::AUTO_COMPLETED, $damascus, $homs);
+
+        $firstBooking = Booking::create([
+            'booking_code' => 'ADMIN-RATE-1',
+            'trip_id' => $firstTrip->trip_id,
+            'passenger_id' => $passenger->user_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'cash',
+            'total_amount' => 15000,
+            'status_id' => $completedBookingStatusId,
+            'completed_at' => now()->subHours(5),
+        ]);
+
+        $secondPassenger = $this->createPassenger('passenger-admin-rating@example.com', '0999998878');
+        $secondBooking = Booking::create([
+            'booking_code' => 'ADMIN-RATE-2',
+            'trip_id' => $secondTrip->trip_id,
+            'passenger_id' => $secondPassenger->user_id,
+            'booking_type' => 'shared',
+            'seats_reserved' => 1,
+            'payment_method' => 'cash',
+            'total_amount' => 18000,
+            'status_id' => $completedBookingStatusId,
+            'completed_at' => now()->subHours(2),
+        ]);
+
+        DriverReview::create([
+            'booking_id' => $firstBooking->booking_id,
+            'driver_id' => $driver->user_id,
+            'passenger_id' => $passenger->user_id,
+            'rated_user_type' => Role::ROLE_DRIVER,
+            'rating' => 5,
+            'comment' => 'Excellent service',
+            'is_visible' => true,
+        ]);
+
+        DriverReview::create([
+            'booking_id' => $secondBooking->booking_id,
+            'driver_id' => $driver->user_id,
+            'passenger_id' => $secondPassenger->user_id,
+            'rated_user_type' => Role::ROLE_DRIVER,
+            'rating' => 3,
+            'comment' => 'Good but late',
+            'is_visible' => true,
+        ]);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/admin/drivers/'.$driver->user_id.'/rating')
+            ->assertOk()
+            ->assertJsonPath('data.average_rating', 4)
+            ->assertJsonPath('data.total_ratings', 2)
+            ->assertJsonPath('data.breakdown.3', 1)
+            ->assertJsonPath('data.breakdown.5', 1)
+            ->assertJsonFragment(['comment' => 'Excellent service']);
+    }
+
     public function test_driver_can_list_own_complaints_and_rating_analytics_with_recent_comments(): void
     {
         $this->seedStatuses();

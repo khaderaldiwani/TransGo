@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\RatingFilterRequest;
 use App\Http\Resources\ApiResponse;
+use App\Models\Role;
+use App\Models\User;
 use App\Services\TripRatingService;
 use RuntimeException;
 use Throwable;
@@ -91,6 +93,27 @@ class RatingController extends Controller
             return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
         } catch (Throwable $e) {
             return ApiResponse::error('Unexpected error while retrieving low-rated drivers.', 500);
+        }
+    }
+
+    public function driverRating(int $driverId)
+    {
+        try {
+            $driver = User::query()
+                ->whereHas('roles', fn ($query) => $query->where('name', Role::ROLE_DRIVER))
+                ->findOrFail($driverId);
+
+            return ApiResponse::success(
+                'Driver rating retrieved successfully.',
+                200,
+                $this->tripRatingService->getDriverRatingSummary($driver)
+            );
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return ApiResponse::error('Driver not found.', 404);
+        } catch (RuntimeException $e) {
+            return ApiResponse::error($e->getMessage(), $e->getCode() ?: 400);
+        } catch (Throwable $e) {
+            return ApiResponse::error('Unexpected error while retrieving driver rating.', 500);
         }
     }
 }
