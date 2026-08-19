@@ -146,6 +146,10 @@ class AdminProfilesApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.personal_information.full_name', 'Driver Profile')
+            ->assertJsonPath(
+                'data.personal_information.id_card_image',
+                url('/storage/drivers/id-cards/driver-card.jpg')
+            )
             ->assertJsonPath('data.personal_information.account_status', 'active')
             ->assertJsonPath('data.vehicle_information.car_type', 'Kia Cerato')
             ->assertJsonPath('data.vehicle_information.sale_contract.contract_validation_flag', true)
@@ -157,6 +161,20 @@ class AdminProfilesApiTest extends TestCase
             ->assertJsonCount(4, 'data.financial_earnings.trips')
             ->assertJsonPath('data.ratings_reviews.total_ratings_count', 4)
             ->assertJsonPath('data.ratings_reviews.stars_breakdown.5', 4);
+    }
+
+    public function test_admin_driver_details_do_not_convert_id_card_number_to_an_image_url(): void
+    {
+        $admin = $this->createBackofficeUser(Role::ROLE_ADMIN, 'Admin User', 'admin-id-card-number@example.com');
+        $driver = $this->createDriver('Driver Number', 'driver-number@example.com');
+
+        $driver->driverProfile->update(['id_card' => '12478']);
+
+        Sanctum::actingAs($admin);
+
+        $this->getJson('/api/v1/admin/drivers/'.$driver->user_id)
+            ->assertOk()
+            ->assertJsonPath('data.personal_information.id_card_image', null);
     }
 
     public function test_admin_can_view_full_passenger_profile_with_all_sections(): void

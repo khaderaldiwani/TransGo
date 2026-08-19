@@ -128,7 +128,7 @@ class DriverManagementService
                 'address' => $user->driverProfile?->address,
                 'personal_photo' => $this->absoluteFileUrl($user->driverProfile?->personal_photo),
                 'account_status' => $accountStatus,
-                'id_card_image' => $this->absoluteFileUrl($user->driverProfile?->id_card),
+                'id_card_image' => $this->absoluteStorageFileUrl($user->driverProfile?->id_card),
                 'license_image' => $this->absoluteFileUrl($user->driverProfile?->license_image),
                 'email' => $user->email,
                 'created_at' => $user->created_at?->toIso8601String(),
@@ -581,6 +581,19 @@ class DriverManagementService
         }
 
         return url('/'.ltrim($path, '/'));
+    }
+
+    private function absoluteStorageFileUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://', 'storage/', '/storage/'])) {
+            return $this->absoluteFileUrl($path);
+        }
+
+        return null;
     }
 
     private function validateSaleContract(?string $documentField): bool
